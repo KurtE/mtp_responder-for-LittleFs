@@ -2,7 +2,7 @@
 //#define use_spi_disk
 //#define use_qspi_disk
 #define use_ram_disk
-EXTMEM char my_buffer[400000];
+DMAMEM char my_buffer[400000];
 
   #include "MTP.h"
   #include "usb1_mtp.h"
