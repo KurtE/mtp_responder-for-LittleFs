@@ -1,12 +1,15 @@
 #include "Arduino.h"
-#ifndef USE_SDIO
-  #define USE_SDIO 1 // change to 1 if using SDIO 
-#endif
+//#define use_spi_disk
+//#define use_qspi_disk
+#define use_ram_disk
+EXTMEM char my_buffer[400000];
 
   #include "MTP.h"
   #include "usb1_mtp.h"
 
-  MTPStorage_SD storage;
+  //MTPStorage_SPI storage;
+  //MTPStorage_QSPI storage;
+  MTPStorage_RAM storage;
   MTPD       mtpd(&storage);
 
 
@@ -16,7 +19,7 @@ void logg(uint32_t del, const char *txt)
   {
     //Serial.println(txt); 
 #if USE_SDIO==1
-    digitalWriteFast(13,!digitalReadFast(13));
+    digitalWriteFast(2,!digitalReadFast(2));
 #endif
     to=millis();
   }
@@ -24,14 +27,16 @@ void logg(uint32_t del, const char *txt)
 
 void setup()
 { 
-  while(!Serial && millis()<3000); 
+  while(!Serial && millis()<2000); 
   usb_mtp_configure();
-  if(!Storage_init()) {Serial.println("No storage"); while(1);};
+    //if(!Storage_init_qspi()) {Serial.println("No storage"); while(1);};
+    //if(!Storage_init_spi(6, SPI)) {Serial.println("No storage"); while(1);};
+    if(!Storage_init_ram(my_buffer, sizeof(my_buffer))) {Serial.println("No storage"); while(1);};
 
   Serial.println("MTP test");
 
 #if USE_SDIO==1
-  pinMode(13,OUTPUT);
+  pinMode(2,OUTPUT);
 #endif
 
 }
