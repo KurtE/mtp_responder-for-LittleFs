@@ -33,13 +33,27 @@
 #include "core_pins.h"
 #include "usb_dev.h"
 
-#include "Storage.h"
+#ifdef use_spi_disk
+	#define USE_SPI
+#elif defined(use_qspi_disk)
+	#define USE_QSPI
+#else
+	#define USE_RAM
+#endif
+
+
+#ifdef USE_SPI
+	#include "Storage_SPI.h"
+#elif defined(USE_QSPI)
+	#include "Storage_QSPI.h"
+#else
+	#include "Storage_RAM.h"
+#endif
 
 // MTP Responder.
 class MTPD {
 public:
   explicit MTPD(MTPStorageInterface* storage) : storage_(storage) {}
-
 private:
   MTPStorageInterface* storage_;
 

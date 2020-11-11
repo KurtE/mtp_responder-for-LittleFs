@@ -30,10 +30,10 @@
 //#include "usb_dev.h"
 //#include "usb_serial.h"
 
-  #include "LittleFS.h"
 
+  #include "LittleFS.h"
   
-  bool Storage_init(void);
+  bool Storage_init_spi(uint8_t cspin, SPIClass &spiport = SPI);
 
   
 // This interface lets the MTP responder interface any storage.
@@ -92,8 +92,23 @@ public:
 
 
 // Storage implementation for SD. SD needs to be already initialized.
-class MTPStorage_SD : public MTPStorageInterface 
+class MTPStorage_SPI : public MTPStorageInterface 
 {
+
+const char * indexFile = "/mtpindex.dat";
+
+struct dirStruct {
+  int index;
+  uint8_t isDir;
+  char name[64];
+  int fnamelen;
+  uint32_t size;
+} entries[128];
+  char name1;
+  char buffer [64];
+  int cx;
+  int entry_cnt = 0;
+
 private:
    File index_;
    File file_;

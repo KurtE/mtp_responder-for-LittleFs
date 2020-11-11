@@ -27,55 +27,20 @@
 #include "usb_dev.h"
 #include "usb_serial.h"
 
-  #include "Storage.h"
-  #include <SPI.h>
+  #include "Storage_RAM.h"
   
   // Call-back for file timestamps.  Only called for file create and sync().
   #include "TimeLib.h"
   // Call back for file timestamps.  Only called for file create and sync().
 
-//#define TEST_RAM
-#define TEST_SPI
-//#define TEST_QSPI
 
-#ifdef TEST_RAM
-LittleFS_RAM sd;
-DMAMEM char buf[400000];	// USE DMAMEM for more memory than ITCM allows - or remove
-#elif defined(TEST_SPI)
-const int FlashChipSelect = 6; // digital pin for flash chip CS pin
-//const int FlashChipSelect = 21; // Arduino 101 built-in SPI Flash
-LittleFS_SPIFlash sd;
-#else
-LittleFS_QSPIFlash sd;
-#endif
-
-  const char * indexFile = "/mtpindex.dat";
+LittleFS_RAM ram;
   
-struct dirStruct {
-  int index;
-  uint8_t isDir;
-  char name[64];
-  int fnamelen;
-  uint32_t size;
-} entries[128];
-  char name1;
-  char buffer [64];
-  int cx;
-  int entry_cnt = 0;
-
-  
- bool Storage_init(void)
-  { 
-#ifdef TEST_RAM
-	if (!sd.begin(buf, sizeof(buf))) {
-#elif defined(TEST_SPI)
-	pinMode(FlashChipSelect, INPUT_PULLUP);
-	if (!sd.begin( FlashChipSelect)) {
-#else
-	if (!sd.begin()) {
-#endif
+ bool Storage_init_ram(void *ptr, uint32_t size)
+  {
+	if (!ram.begin(ptr, size)) {
 		return false;
-		//sd.errorHalt("sd.begin failed");
+		//ram.errorHalt("ram.begin failed");
 	} else {
 		delay(10);
 		return true;
@@ -92,64 +57,64 @@ struct dirStruct {
 //   events (notify usb host when local storage changes)
 
 // These should probably be weak.
-void mtp_yield() {}
-void mtp_lock_storage(bool lock) {}
+void mtp_yield_ram() {}
+void mtp_lock_storage_ram(bool lock) {}
 
-  bool MTPStorage_SD::readonly() { return false; }
-  bool MTPStorage_SD::has_directories() { return true; }
+  bool MTPStorage_RAM::readonly() { return false; }
+  bool MTPStorage_RAM::has_directories() { return true; }
   
 
-//  uint64_t MTPStorage_SD::size() { return (uint64_t)512 * (uint64_t)sd.clusterCount()     * (uint64_t)sd.sectorsPerCluster(); }
-//  uint64_t MTPStorage_SD::free() { return (uint64_t)512 * (uint64_t)sd.freeClusterCount() * (uint64_t)sd.sectorsPerCluster(); }
-  uint32_t MTPStorage_SD::clusterCount() { return 8000; }
-  uint32_t MTPStorage_SD::freeClusters() { return 2000; }
-  uint32_t MTPStorage_SD::clusterSize() { return 512; }
+//  uint64_t MTPStorage_RAM::size() { return (uint64_t)512 * (uint64_t)ram.clusterCount()     * (uint64_t)ram.sectorsPerCluster(); }
+//  uint64_t MTPStorage_RAM::free() { return (uint64_t)512 * (uint64_t)ram.freeClusterCount() * (uint64_t)ram.sectorsPerCluster(); }
+  uint32_t MTPStorage_RAM::clusterCount() { return 8000; }
+  uint32_t MTPStorage_RAM::freeClusters() { return 2000; }
+  uint32_t MTPStorage_RAM::clusterSize() { return 512; }
 
 
-  void MTPStorage_SD::ResetIndex() {
+  void MTPStorage_RAM::ResetIndex() {
     if(!index_) return;
     
-    mtp_lock_storage(true);
+    mtp_lock_storage_ram(true);
     if(index_.available()) index_.close();
-    sd.remove(indexFile);
-    index_ = sd.open(indexFile, FILE_READ);
-    mtp_lock_storage(false);
+    ram.remove(indexFile);
+    index_ = ram.open(indexFile, FILE_READ);
+    mtp_lock_storage_ram(false);
 
     all_scanned_ = false;
     index_generated=false;
     open_file_ = 0xFFFFFFFEUL;
   }
 
-  void MTPStorage_SD::CloseIndex()
+  void MTPStorage_RAM::CloseIndex()
   {
-    mtp_lock_storage(true);
+    mtp_lock_storage_ram(true);
     index_.close();
-    mtp_lock_storage(false);
+    mtp_lock_storage_ram(false);
     index_generated = false;
     index_entries_ = 0;
   }
 
-  void MTPStorage_SD::OpenIndex() 
+  void MTPStorage_RAM::OpenIndex() 
   { 
   if(index_) {
 	  return; // only once
   }
-    mtp_lock_storage(true);
-    index_ = sd.open(indexFile, FILE_WRITE);
-    mtp_lock_storage(false);
+    mtp_lock_storage_ram(true);
+    index_ = ram.open(indexFile, FILE_WRITE);
+    mtp_lock_storage_ram(false);
   }
 
-  void MTPStorage_SD::WriteIndexRecord(uint32_t i, const Record& r) 
+  void MTPStorage_RAM::WriteIndexRecord(uint32_t i, const Record& r) 
   {
     OpenIndex();
-    mtp_lock_storage(true);
+    mtp_lock_storage_ram(true);
 	Serial.println(index_);
     index_.seek(sizeof(r) * i);
     index_.write((char*)&r, sizeof(r));
-    mtp_lock_storage(false);
+    mtp_lock_storage_ram(false);
   }
 
-  uint32_t MTPStorage_SD::AppendIndexRecord(const Record& r) 
+  uint32_t MTPStorage_RAM::AppendIndexRecord(const Record& r) 
   {
     uint32_t new_record = index_entries_++;
     WriteIndexRecord(new_record, r);
@@ -157,7 +122,7 @@ void mtp_lock_storage(bool lock) {}
   }
 
   // TODO(hubbe): Cache a few records for speed.
-  Record MTPStorage_SD::ReadIndexRecord(uint32_t i) 
+  Record MTPStorage_RAM::ReadIndexRecord(uint32_t i) 
   {
     Record ret;
     if (i > index_entries_) 
@@ -165,14 +130,14 @@ void mtp_lock_storage(bool lock) {}
       return ret;
     }
     OpenIndex();
-    mtp_lock_storage(true);
+    mtp_lock_storage_ram(true);
     index_.seek(sizeof(ret) * i);
     index_.read((char *)&ret, sizeof(ret));
-    mtp_lock_storage(false);
+    mtp_lock_storage_ram(false);
     return ret;
   }
 
-  void MTPStorage_SD::ConstructFilename(int i, char* out, int len) // construct filename rexursively
+  void MTPStorage_RAM::ConstructFilename(int i, char* out, int len) // construct filename rexursively
   {
     if (i == 0) 
     { strcpy(out, "/");
@@ -185,32 +150,32 @@ void mtp_lock_storage(bool lock) {}
     }
   }
 
-  void MTPStorage_SD::OpenFileByIndex(uint32_t i, uint32_t mode) 
+  void MTPStorage_RAM::OpenFileByIndex(uint32_t i, uint32_t mode) 
   {
     if (open_file_ == i && mode_ == mode) return;
     char filename[256];
     ConstructFilename(i, filename, 256);
-    mtp_lock_storage(true);
+    mtp_lock_storage_ram(true);
     if(file_) file_.close();
-    file_ = sd.open(filename,mode);
+    file_ = ram.open(filename,mode);
     open_file_ = i;
     mode_ = mode;
-    mtp_lock_storage(false);
+    mtp_lock_storage_ram(false);
   }
 
   // MTP object handles should not change or be re-used during a session.
   // This would be easy if we could just have a list of all files in memory.
   // Since our RAM is limited, we'll keep the index in a file instead.
-  void MTPStorage_SD::GenerateIndex()
+  void MTPStorage_RAM::GenerateIndex()
   {
 	///Serial.println("GenerateIndex");
     if (index_generated) return;
     index_generated = true;
 
     // first remove old index file
-    mtp_lock_storage(true);
-    sd.remove(indexFile);
-    mtp_lock_storage(false);
+    mtp_lock_storage_ram(true);
+    ram.remove(indexFile);
+    mtp_lock_storage_ram(false);
     index_entries_ = 0;
 
     Record r;
@@ -224,7 +189,7 @@ void mtp_lock_storage(bool lock) {}
   }
 
 
-  void MTPStorage_SD::ScanDir(uint32_t i) 
+  void MTPStorage_RAM::ScanDir(uint32_t i) 
   {
     Record record = ReadIndexRecord(i);
     if (record.isdir && !record.scanned) {
@@ -234,14 +199,14 @@ void mtp_lock_storage(bool lock) {}
 		char str1[65] = "/";
 		strncat(str1, record.name,64);
 		//Serial.println(str1);
-		printDirectory1(sd.open(str1), 0);
+		printDirectory1(ram.open(str1), 0);
 	} else {
-		printDirectory1(sd.open(record.name), 0);
+		printDirectory1(ram.open(record.name), 0);
 	}
 
       OpenFileByIndex(i);
-	   mtp_lock_storage(true);
-        mtp_lock_storage(false);
+	   mtp_lock_storage_ram(true);
+        mtp_lock_storage_ram(false);
       if (!file_) return;
       int sibling = 0;
 	  
@@ -268,7 +233,7 @@ void mtp_lock_storage(bool lock) {}
     }
   }
 
-  void MTPStorage_SD::ScanAll() 
+  void MTPStorage_RAM::ScanAll() 
   {
     if (all_scanned_) return;
     all_scanned_ = true;
@@ -277,7 +242,7 @@ void mtp_lock_storage(bool lock) {}
     for (uint32_t i = 0; i < index_entries_; i++)  ScanDir(i);
   }
 
-  void MTPStorage_SD::StartGetObjectHandles(uint32_t parent) 
+  void MTPStorage_RAM::StartGetObjectHandles(uint32_t parent) 
   {
     GenerateIndex();
     if (parent) 
@@ -295,7 +260,7 @@ void mtp_lock_storage(bool lock) {}
     }
   }
 
-  uint32_t MTPStorage_SD::GetNextObjectHandle()
+  uint32_t MTPStorage_RAM::GetNextObjectHandle()
   {
     while (true) {
       if (next_ == 0) return 0;
@@ -314,7 +279,7 @@ void mtp_lock_storage(bool lock) {}
     }
   }
 
-  void MTPStorage_SD::GetObjectInfo(uint32_t handle, char* name, uint32_t* size, uint32_t* parent)
+  void MTPStorage_RAM::GetObjectInfo(uint32_t handle, char* name, uint32_t* size, uint32_t* parent)
   {
     Record r = ReadIndexRecord(handle);
     strcpy(name, r.name);
@@ -322,21 +287,21 @@ void mtp_lock_storage(bool lock) {}
     *size = r.isdir ? 0xFFFFFFFFUL : r.child;
   }
 
-  uint32_t MTPStorage_SD::GetSize(uint32_t handle) 
+  uint32_t MTPStorage_RAM::GetSize(uint32_t handle) 
   {
     return ReadIndexRecord(handle).child;
   }
 
-  void MTPStorage_SD::read(uint32_t handle, uint32_t pos, char* out, uint32_t bytes)
+  void MTPStorage_RAM::read(uint32_t handle, uint32_t pos, char* out, uint32_t bytes)
   {
     OpenFileByIndex(handle);
-    mtp_lock_storage(true);
+    mtp_lock_storage_ram(true);
     file_.seek(pos);
     file_.read(out,bytes);
-    mtp_lock_storage(false);
+    mtp_lock_storage_ram(false);
   }
 
-  bool MTPStorage_SD::DeleteObject(uint32_t object)
+  bool MTPStorage_RAM::DeleteObject(uint32_t object)
   {
     char filename[256];
     Record r;
@@ -353,9 +318,9 @@ void mtp_lock_storage(bool lock) {}
 
     ConstructFilename(object, filename, 256);
     bool success;
-    mtp_lock_storage(true);
-    if (r.isdir) success = sd.rmdir(filename); else  success = sd.remove(filename);
-    mtp_lock_storage(false);
+    mtp_lock_storage_ram(true);
+    if (r.isdir) success = ram.rmdir(filename); else  success = ram.remove(filename);
+    mtp_lock_storage_ram(false);
     if (!success) return false;
     
     r.name[0] = 0;
@@ -383,7 +348,7 @@ void mtp_lock_storage(bool lock) {}
     return true;
   }
 
-  uint32_t MTPStorage_SD::Create(uint32_t parent,  bool folder, const char* filename)
+  uint32_t MTPStorage_RAM::Create(uint32_t parent,  bool folder, const char* filename)
   {
     uint32_t ret;
     if (parent == 0xFFFFFFFFUL) parent = 0;
@@ -403,9 +368,9 @@ void mtp_lock_storage(bool lock) {}
     {
       char filename[256];
       ConstructFilename(ret, filename, 256);
-      mtp_lock_storage(true);
-      sd.mkdir(filename);
-      mtp_lock_storage(false);
+      mtp_lock_storage_ram(true);
+      ram.mkdir(filename);
+      mtp_lock_storage_ram(false);
     } 
     else 
     {
@@ -414,26 +379,26 @@ void mtp_lock_storage(bool lock) {}
     return ret;
   }
 
-  void MTPStorage_SD::write(const char* data, uint32_t bytes)
+  void MTPStorage_RAM::write(const char* data, uint32_t bytes)
   {
-      mtp_lock_storage(true);
+      mtp_lock_storage_ram(true);
       file_.write(data,bytes);
-      mtp_lock_storage(false);
+      mtp_lock_storage_ram(false);
   }
 
-  void MTPStorage_SD::close() 
+  void MTPStorage_RAM::close() 
   {
-    mtp_lock_storage(true);
+    mtp_lock_storage_ram(true);
     uint64_t size = file_.size();
     file_.close();
-    mtp_lock_storage(false);
+    mtp_lock_storage_ram(false);
     Record r = ReadIndexRecord(open_file_);
     r.child = size;
     WriteIndexRecord(open_file_, r);
     open_file_ = 0xFFFFFFFEUL;
   }
 
-  void MTPStorage_SD::rename(uint32_t handle, const char* name) 
+  void MTPStorage_RAM::rename(uint32_t handle, const char* name) 
   { 
     char oldName[256];
     char newName[256];
@@ -444,10 +409,10 @@ void mtp_lock_storage(bool lock) {}
     WriteIndexRecord(handle, p1);
     ConstructFilename(handle, newName, 256);
 
-    //sd.rename(oldName,newName);
+    //ram.rename(oldName,newName);
   }
 
-  void MTPStorage_SD::move(uint32_t handle, uint32_t newParent ) 
+  void MTPStorage_RAM::move(uint32_t handle, uint32_t newParent ) 
   { 
     char oldName[256];
     char newName[256];
@@ -466,18 +431,18 @@ void mtp_lock_storage(bool lock) {}
     WriteIndexRecord(newParent, p2);
 
     ConstructFilename(handle, newName, 256);
-    //sd.rename(oldName,newName);
+    //ram.rename(oldName,newName);
   }
   
 
-void MTPStorage_SD::printDirectory() {
+void MTPStorage_RAM::printDirectory() {
   Serial.println("printDirectory\n--------------");
-  printDirectory1(sd.open("/"), 0);
+  printDirectory1(ram.open("/"), 0);
   //Serial.println();
 }
 
 
-void MTPStorage_SD::printDirectory1(File dir, int numTabs) {
+void MTPStorage_RAM::printDirectory1(File dir, int numTabs) {
   //dir.whoami();
   entry_cnt = 0;
   while (true) {
