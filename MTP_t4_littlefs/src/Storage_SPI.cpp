@@ -37,8 +37,6 @@
 LittleFS_SPIFlash spf;
 
   
-
-  
  bool Storage_init_spi(uint8_t cspin, SPIClass &spiport)
 {
 	
@@ -68,12 +66,18 @@ void mtp_lock_storage_spi(bool lock) {}
   bool MTPStorage_SPI::readonly() { return false; }
   bool MTPStorage_SPI::has_directories() { return true; }
   
+  void MTPStorage_SPI::capacity(){
+	mem_available = spf.totalSize();;
+	mem_used = spf.usedSize();
+	mem_free = mem_available - mem_used;
+  }
+  
 
 //  uint64_t MTPStorage_SPI::size() { return (uint64_t)512 * (uint64_t)spf.clusterCount()     * (uint64_t)spf.sectorsPerCluster(); }
 //  uint64_t MTPStorage_SPI::free() { return (uint64_t)512 * (uint64_t)spf.freeClusterCount() * (uint64_t)spf.sectorsPerCluster(); }
-  uint32_t MTPStorage_SPI::clusterCount() { return 8000; }
-  uint32_t MTPStorage_SPI::freeClusters() { return 2000; }
-  uint32_t MTPStorage_SPI::clusterSize() { return 512; }
+  uint32_t MTPStorage_SPI::clusterCount() { capacity(); return mem_available; }
+  uint32_t MTPStorage_SPI::freeClusters() { capacity(); return mem_free; }
+  uint32_t MTPStorage_SPI::clusterSize() { return 0; }  
 
 
   void MTPStorage_SPI::ResetIndex() {
@@ -228,9 +232,9 @@ void mtp_lock_storage_spi(bool lock) {}
 				r.name[j] = entries[rec_count].name[j];
         sibling = AppendIndexRecord(r);
 
-//Serial.printf("ScanDir1\n\tIndex: %d\n", i);
-//Serial.printf("\tname: %s, parent: %d, child: %d, sibling: %d\n", r.name, r.parent, r.child, r.sibling);
-//Serial.printf("\tIsdir: %d, IsScanned: %d\n", r.isdir, r.scanned);
+Serial.printf("ScanDir1\n\tIndex: %d\n", i);
+Serial.printf("\tname: %s, parent: %d, child: %d, sibling: %d\n", r.name, r.parent, r.child, r.sibling);
+Serial.printf("\tIsdir: %d, IsScanned: %d\n", r.isdir, r.scanned);
       }
       record.scanned = true;
       record.child = sibling;
@@ -407,14 +411,29 @@ void mtp_lock_storage_spi(bool lock) {}
   { 
     char oldName[256];
     char newName[256];
+	
+Serial.printf("-----------------  Rename Debug ---------------\n");
 
     ConstructFilename(handle, oldName, 256);
+Serial.printf("Handle/oldname:  %d, %s\n", handle, oldName);
     Record p1 = ReadIndexRecord(handle);
     strcpy(p1.name,name);
+	
+Serial.printf("Rename record before\n\tIndex: %d\n", handle);
+Serial.printf("\tname: %s, parent: %d, child: %d, sibling: %d\n", p1.name, p1.parent, p1.child, p1.sibling);
+Serial.printf("\tIsdir: %d, IsScanned: %d\n", p1.isdir, p1.scanned);
+	
     WriteIndexRecord(handle, p1);
-    ConstructFilename(handle, newName, 256);
+	
+p1 = ReadIndexRecord(handle);
+Serial.printf("Rename record After\n\tIndex: %d\n", handle);
+Serial.printf("\tname: %s, parent: %d, child: %d, sibling: %d\n", p1.name, p1.parent, p1.child, p1.sibling);
+Serial.printf("\tIsdir: %d, IsScanned: %d\n", p1.isdir, p1.scanned);
 
-    //spf.rename(oldName,newName);
+    ConstructFilename(handle, newName, 256);
+Serial.printf("Handle/oldname:  %d, %s\n", handle, newName);
+    spf.rename(oldName,newName);
+
   }
 
   void MTPStorage_SPI::move(uint32_t handle, uint32_t newParent ) 
@@ -436,7 +455,7 @@ void mtp_lock_storage_spi(bool lock) {}
     WriteIndexRecord(newParent, p2);
 
     ConstructFilename(handle, newName, 256);
-    //spf.rename(oldName,newName);
+    spf.rename(oldName,newName);
   }
   
 
@@ -458,18 +477,18 @@ void MTPStorage_SPI::printDirectory1(File dir, int numTabs) {
       //Serial.println("**nomorefiles**");
       break;
     }
-    for (uint8_t i = 0; i < numTabs; i++) {
-      Serial.print('\t');
-    }
+    //for (uint8_t i = 0; i < numTabs; i++) {
+    //  Serial.print('\t');
+    //}
 
     if(entry.isDirectory()) {
-      Serial.print("DIR\t");
+      //Serial.print("DIR\t");
       entries[entry_cnt].isDir = 1;
     } else {
-      Serial.print("FILE\t");
+      //Serial.print("FILE\t");
       entries[entry_cnt].isDir = 0;
     }
-    Serial.print(entry.name());
+    //Serial.print(entry.name());
     
     if (entry.isDirectory()) {
       cx = snprintf ( buffer, 64, "%s", entry.name() );
@@ -482,7 +501,7 @@ void MTPStorage_SPI::printDirectory1(File dir, int numTabs) {
       //printDirectory1(entry, numTabs + 1);
     } else {
       // files have sizes, directories do not
-      Serial.print("\t\t");
+      //Serial.print("\t\t");
       //Serial.println(entry.size(), DEC);
       cx = snprintf ( buffer, 64, "%s", entry.name() );
 		entries[entry_cnt].fnamelen = cx;

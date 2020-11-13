@@ -63,11 +63,18 @@ void mtp_lock_storage(bool lock) {}
   bool MTPStorage_QSPI::has_directories() { return true; }
   
 
-//  uint64_t MTPStorage_QSPI::size() { return (uint64_t)512 * (uint64_t)sd.clusterCount()     * (uint64_t)sd.sectorsPerCluster(); }
-//  uint64_t MTPStorage_QSPI::free() { return (uint64_t)512 * (uint64_t)sd.freeClusterCount() * (uint64_t)sd.sectorsPerCluster(); }
-  uint32_t MTPStorage_QSPI::clusterCount() { return 8000; }
-  uint32_t MTPStorage_QSPI::freeClusters() { return 2000; }
-  uint32_t MTPStorage_QSPI::clusterSize() { return 512; }
+  void MTPStorage_QSPI::capacity(){
+	mem_available = spq.totalSize();;
+	mem_used = spq.usedSize();
+	mem_free = mem_available - mem_used;
+  }
+  
+
+//  uint64_t MTPStorage_SPI::size() { return (uint64_t)512 * (uint64_t)spf.clusterCount()     * (uint64_t)spf.sectorsPerCluster(); }
+//  uint64_t MTPStorage_SPI::free() { return (uint64_t)512 * (uint64_t)spf.freeClusterCount() * (uint64_t)spf.sectorsPerCluster(); }
+  uint32_t MTPStorage_QSPI::clusterCount() { capacity(); return mem_available; }
+  uint32_t MTPStorage_QSPI::freeClusters() { capacity(); return mem_free; }
+  uint32_t MTPStorage_QSPI::clusterSize() { return 0; }  
 
 
   void MTPStorage_QSPI::ResetIndex() {
@@ -408,7 +415,7 @@ void mtp_lock_storage(bool lock) {}
     WriteIndexRecord(handle, p1);
     ConstructFilename(handle, newName, 256);
 
-    //spq.rename(oldName,newName);
+    spq.rename(oldName,newName);
   }
 
   void MTPStorage_QSPI::move(uint32_t handle, uint32_t newParent ) 
@@ -430,7 +437,7 @@ void mtp_lock_storage(bool lock) {}
     WriteIndexRecord(newParent, p2);
 
     ConstructFilename(handle, newName, 256);
-    //spq.rename(oldName,newName);
+    spq.rename(oldName,newName);
   }
   
 

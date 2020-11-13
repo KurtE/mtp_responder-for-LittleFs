@@ -63,13 +63,18 @@ void mtp_lock_storage_ram(bool lock) {}
   bool MTPStorage_RAM::readonly() { return false; }
   bool MTPStorage_RAM::has_directories() { return true; }
   
+  void MTPStorage_RAM::capacity(){
+	mem_available = ram.totalSize();;
+	mem_used = ram.usedSize();
+	mem_free = mem_available - mem_used;
+  }
+  
 
-//  uint64_t MTPStorage_RAM::size() { return (uint64_t)512 * (uint64_t)ram.clusterCount()     * (uint64_t)ram.sectorsPerCluster(); }
-//  uint64_t MTPStorage_RAM::free() { return (uint64_t)512 * (uint64_t)ram.freeClusterCount() * (uint64_t)ram.sectorsPerCluster(); }
-  uint32_t MTPStorage_RAM::clusterCount() { return 8000; }
-  uint32_t MTPStorage_RAM::freeClusters() { return 2000; }
-  uint32_t MTPStorage_RAM::clusterSize() { return 512; }
-
+//  uint64_t MTPStorage_SPI::size() { return (uint64_t)512 * (uint64_t)spf.clusterCount()     * (uint64_t)spf.sectorsPerCluster(); }
+//  uint64_t MTPStorage_SPI::free() { return (uint64_t)512 * (uint64_t)spf.freeClusterCount() * (uint64_t)spf.sectorsPerCluster(); }
+  uint32_t MTPStorage_RAM::clusterCount() { capacity(); return mem_available; }
+  uint32_t MTPStorage_RAM::freeClusters() { capacity(); return mem_free; }
+  uint32_t MTPStorage_RAM::clusterSize() { return 0; }  
 
   void MTPStorage_RAM::ResetIndex() {
     if(!index_) return;

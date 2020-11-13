@@ -38,7 +38,7 @@
   
 // This interface lets the MTP responder interface any storage.
 // We'll need to give the MTP responder a pointer to one of these.
-class MTPStorageInterface {
+class MTPStorageInterface1 {
 public:
   // Return true if this storage is read-only
   virtual bool readonly() = 0;
@@ -52,6 +52,7 @@ public:
   // Return free space in bytes.
 //  virtual uint64_t free() = 0;
 
+  uint32_t mem_free, mem_available, mem_used;
 
   virtual uint32_t clusterCount() = 0;
   virtual uint32_t freeClusters() = 0;
@@ -92,7 +93,7 @@ public:
 
 
 // Storage implementation for SD. SD needs to be already initialized.
-class MTPStorage_QSPI : public MTPStorageInterface 
+class MTPStorage_QSPI : public MTPStorageInterface1 
 {
 
   const char * indexFile = "/mtpindex.dat";
@@ -103,7 +104,8 @@ struct dirStruct {
   char name[64];
   int fnamelen;
   uint32_t size;
-} entries[128];
+} entries[256];
+
   char name1;
   char buffer [64];
   int cx;
@@ -162,6 +164,9 @@ private:
   
 void printDirectory();
 void printDirectory1(File dir, int numTabs);
+
+  void capacity();
+
 };
 
 #endif
