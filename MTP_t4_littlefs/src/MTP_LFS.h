@@ -33,16 +33,7 @@
 #include "core_pins.h"
 #include "usb_dev.h"
 
-#ifdef use_spi_disk
-	#define USE_SPI
-#elif defined(use_qspi_disk)
-	#define USE_QSPI
-#else
-	#define USE_RAM
-#endif
-
 	#include "Storage_SPI.h"
-
 // modify strings if needed (see MTP.cpp how they are used)
 #define MTP_MANUF "PJRC"
 #define MTP_MODEL "Teensy"
@@ -148,6 +139,7 @@ private:
   
 public:
   void loop(void) ;
+  void test(void) ;
 };
 
 #endif

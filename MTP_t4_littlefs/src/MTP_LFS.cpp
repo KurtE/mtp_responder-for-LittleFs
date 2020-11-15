@@ -155,8 +155,8 @@
     MTP_PROPERTY_PROTECTION_STATUS                      ,//0xDC03
     MTP_PROPERTY_OBJECT_SIZE                            ,//0xDC04
     MTP_PROPERTY_OBJECT_FILE_NAME                       ,//0xDC07
-    MTP_PROPERTY_DATE_CREATED                           ,//0xDC08
-    MTP_PROPERTY_DATE_MODIFIED                          ,//0xDC09
+//    MTP_PROPERTY_DATE_CREATED                           ,//0xDC08
+//    MTP_PROPERTY_DATE_MODIFIED                          ,//0xDC09
     MTP_PROPERTY_PARENT_OBJECT                          ,//0xDC0B
     MTP_PROPERTY_PERSISTENT_UID                         ,//0xDC41
     MTP_PROPERTY_NAME                                    //0xDC44
@@ -197,7 +197,6 @@
   }
 
   void MTPD_SPI::WriteDescriptor() {
-printf("writeDescriptor");
     write16(100);  // MTP version
     write32(6);    // MTP extension
 //    write32(0xFFFFFFFFUL);    // MTP extension
@@ -227,7 +226,6 @@ printf("writeDescriptor");
   }
 
   void MTPD_SPI::WriteStorageIDs() {
-printf("WriteStorageIDs");
     uint32_t num=storage1_->getNumStorage();
     write32(num); // 1 entry
     for(uint32_t ii=1;ii<=num;ii++)  write32(ii); // storage1 id
@@ -606,7 +604,7 @@ printf("WriteStorageIDs");
       data_buffer_ = NULL;                                \
     } while(0)
 
-    #define printContainer() {   printf("%x %d %d %d: %x %x %x\n", \
+    #define printContainer() {   if (0) printf("%x %d %d %d: %x %x %x\n", \
                 CONTAINER->op, CONTAINER->len, CONTAINER->type, CONTAINER->transaction_id, \
                 CONTAINER->params[0], CONTAINER->params[1], CONTAINER->params[2]);  }
 
@@ -955,7 +953,7 @@ printf("WriteStorageIDs");
     } while(0)
 
 
-    #define printContainer() {   printf("%x %d %d %d: %x %x %x\n", \
+    #define printContainer() {   if (0) printf("%x %d %d %d: %x %x %x\n", \
                 CONTAINER->op, CONTAINER->len, CONTAINER->type, CONTAINER->transaction_id, \
                 CONTAINER->params[0], CONTAINER->params[1], CONTAINER->params[2]);  }
 
@@ -1155,7 +1153,6 @@ printf("WriteStorageIDs");
                 }
               }
               break;
-
 
           case 0x100C:  // SendObjectInfo
               if (!p1) p1 = 1;

@@ -22,49 +22,18 @@
 // SOFTWARE.
 
 // modified for SDFS by WMXZ
+// Nov 2020 adapted to SdFat-beta / SD combo
 
 #ifndef Storage_H
 #define Storage_H
 
 #include "core_pins.h"
-//#include "usb_dev.h"
-//#include "usb_serial.h"
-
-
-  #include "LittleFS.h"
-  
-// Storage.h - Teensy MTP Responder library
-// Copyright (C) 2017 Fredrik Hubinette <hubbe@hubbe.net>
-//
-// With updates from MichaelMC and Yoong Hor Meng <yoonghm@gmail.com>
-//
-// Permission is hereby granted, free of charge, to any person obtaining a copy
-// of this software and associated documentation files (the "Software"), to deal
-// in the Software without restriction, including without limitation the rights
-// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-// copies of the Software, and to permit persons to whom the Software is
-// furnished to do so, subject to the following conditions:
-//
-// The above copyright notice and this permission notice shall be included in all
-// copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-// SOFTWARE.
-
-// modified for SDFS by WMXZ
-// Nov 2020 adapted to SdFat-beta / SD combo
 
 #ifndef Storage_SPI_H
 #define Storage_SPI_H
 
-#include "core_pins.h"
+#include "LittleFS.h"
 
-//LittleFS_SPIFlash sdx[10];
 extern LittleFS_SPIFlash sdx[];
 
 // This interface lets the MTP responder interface any storage.
@@ -154,6 +123,7 @@ private:
 
   uint32_t index_entries_ = 0;
   bool index_generated = false;
+  void printIndexList(void);
 
   bool readonly(uint32_t storage);
   bool has_directories(uint32_t storage) ;
