@@ -41,14 +41,14 @@
 	#define USE_RAM
 #endif
 
-
-#ifdef USE_SPI
 	#include "Storage_SPI.h"
-#elif defined(USE_QSPI)
-	#include "Storage_QSPI.h"
-#else
-	#include "Storage_RAM.h"
-#endif
+
+// modify strings if needed (see MTP.cpp how they are used)
+#define MTP_MANUF "PJRC"
+#define MTP_MODEL "Teensy"
+#define MTP_VERS  "1.0"
+#define MTP_SERNR "1234"
+#define MTP_NAME  "Teensy"
 
 // MTP Responder.
 class MTPD1 {

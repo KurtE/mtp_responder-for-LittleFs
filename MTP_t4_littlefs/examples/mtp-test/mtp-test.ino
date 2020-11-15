@@ -1,69 +1,70 @@
 #include "Arduino.h"
-//#define use_spi_disk
-#define use_qspi_disk
-//#define use_ram_disk
-
 #include "MTP_LFS.h"
 #include "usb1_mtp.h"
 
-#if defined(use_spi_disk)
-MTPStorage_SPI storage1;
-#elif defined(use_qspi_disk)
-MTPStorage_QSPI storage1;
-#elif defined(use_ram_disk)
-DMAMEM char my_buffer[400000];
-MTPStorage_RAM storage1;
-#else
-#error "Need to define one of the storage classes to use"
-#endif
-MTPD1      mtpd1(&storage1);
+  #define SD_MOSI 11
+  #define SD_MISO 12
+  #define SD_SCK  13
 
+//  const char *sd_str[]={"sdio","sd1","sd2","sd3","sd4","sd5","sd6"}; // WMXZ example
+//  const int cs[] = {BUILTIN_SDCARD,34,33,35,36,37,38}; // WMXZ example
+
+  const char *sd_str[]={"PropShield", "Winbond1"}; // edit to reflect your configuration
+  const int cs[] = {6, 10}; // edit to reflect your configuration
+  const int nsd = sizeof(cs)/sizeof(int);
+
+LittleFS_SPIFlash sdx[nsd];
+
+MTPStorage_SPI storage1;
+MTPD1       mtpd1(&storage1);
+
+void storage_configure(MTPStorage_SPI *storage1, const char **sd_str, const int *cs, LittleFS_SPIFlash *sdx, int num)
+{
+    #if defined SD_SCK
+      SPI.setMOSI(SD_MOSI);
+      SPI.setMISO(SD_MISO);
+      SPI.setSCK(SD_SCK);
+    #endif
+
+    storage1->setStorageNumbers(sd_str,nsd);
+
+    for(int ii=0; ii<nsd; ii++){
+        pinMode(cs[ii],OUTPUT); digitalWriteFast(cs[ii],HIGH);
+        if(!sdx[ii].begin(cs[ii])) {Serial.println("No storage"); while(1);}
+
+        //uint32_t volCount  = sdx[ii].clusterCount();
+        //uint32_t volFree  = sdx[ii].freeClusterCount();
+        //uint32_t volClust = sdx[ii].sectorsPerCluster();
+        //Serial.printf("Storage %d %d %d %d %d\n",ii,cs[ii],volCount,volFree,volClust);
+      }
+
+}
 
 void logg(uint32_t del, const char *txt)
 { static uint32_t to;
-  if (millis() - to > del)
+  if(millis()-to > del)
   {
-    //Serial.println(txt);
-#if USE_SDIO==1
-    digitalWriteFast(2, !digitalReadFast(2));
-#endif
-    to = millis();
+    Serial.println(txt); 
+    to=millis();
   }
 }
 
 void setup()
-{
-  while (!Serial && millis() < 2000);
+{ 
+  while(!Serial && millis()<3000); 
+  Serial.println("MTP_test");
+  
   usb_mtp_configure();
-#if defined(use_spi_disk)
-  if (!Storage_init_spi(10, SPI)) {
-    Serial.println("No storage");
-    while (1);
-  };
-#elif defined(use_qspi_disk)
-  if (!Storage_init_qspi()) {
-    Serial.println("No storage");
-    while (1);
-  };
-#elif defined(use_ram_disk)
-  if (!Storage_init_ram(my_buffer, sizeof(my_buffer))) {
-    Serial.println("No storage");
-    while (1);
-  };
-#endif
+  storage_configure(&storage1, sd_str,cs, sdx, nsd);
 
-  Serial.println("MTP test");
-
-#if USE_SDIO==1
-  pinMode(2, OUTPUT);
-#endif
-
+  Serial.println("Setup done");
+  Serial.flush();
 }
 
 void loop()
-{
+{ 
   mtpd1.loop();
 
-  logg(1000, "loop");
+  //logg(1000,"loop");
   //asm("wfi"); // may wait forever on T4.x
 }

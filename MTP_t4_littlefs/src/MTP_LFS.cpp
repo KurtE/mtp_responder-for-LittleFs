@@ -27,13 +27,16 @@
 
 #include "MTP_LFS.h"
 
-
 #undef USB_DESC_LIST_DEFINE
 #include "usb_desc.h"
 
 #include "usb1_mtp.h"
 
-#define printf(...) Serial.printf(__VA_ARGS__)
+#if 0
+  #define printf(...) Serial.printf(__VA_ARGS__)
+#else
+  #define printf(...) 
+#endif
 
 /***************************************************************************************************/
   // Container Types
@@ -194,6 +197,7 @@
   }
 
   void MTPD1::WriteDescriptor() {
+printf("writeDescriptor");
     write16(100);  // MTP version
     write32(6);    // MTP extension
 //    write32(0xFFFFFFFFUL);    // MTP extension
@@ -216,43 +220,38 @@
     write16(0x3000);  // Undefined format
     write16(0x3001);  // Folders (associations)
 
-    writestring("PJRC");     // Manufacturer
-    writestring("Teensy");   // Model
-    writestring("1.1");      // version
-    writestring("???");      // serial
+    writestring(MTP_MANUF);     // Manufacturer
+    writestring(MTP_MODEL);     // Model
+    writestring(MTP_VERS);      // version
+    writestring(MTP_SERNR);     // serial
   }
 
   void MTPD1::WriteStorageIDs() {
-    write32(1); // 1 entry
-    write32(1); // 1 storage1
+printf("WriteStorageIDs");
+    uint32_t num=storage1_->getNumStorage();
+    write32(num); // 1 entry
+    for(uint32_t ii=1;ii<=num;ii++)  write32(ii); // storage1 id
   }
 
   void MTPD1::GetStorageInfo(uint32_t storage1) {
-    write16(storage1_->readonly() ? 0x0001 : 0x0004);   // storage1 type (removable RAM)
-    write16(storage1_->has_directories() ? 0x0002: 0x0001);   // filesystem type (generic hierarchical)
+    write16(storage1_->readonly( storage1) ? 0x0001 : 0x0004);   // storage1 type (removable RAM)
+    write16(storage1_->has_directories( storage1) ? 0x0002: 0x0001);   // filesystem type (generic hierarchical)
     write16(0x0000);   // access capability (read-write)
-    
-    write64(storage1_->clusterCount());  // max capacity
-    write64(storage1_->freeClusters());  // free space (100M)
-    //
+     
+    write64(storage1_->clusterCount(storage1));  // max capacity
+    write64(storage1_->freeClusters(storage1));  // free space (100M)
     //
     write32(0xFFFFFFFFUL);  // free space (objects)
-	if(storage_volume == 0) {
-		writestring("SPI FLASH");  // storage1 descriptor
-	} else if(storage_volume == 1) {
-		writestring("QSPI FLASH");  // storage1 descriptor
-	} else {
-		writestring("RAM DRIVE");  // storage1 descriptor
-	}
-
+    const char *name = storage1_->getStorageName(storage1);
+    writestring(name);  // storage1 descriptor
     writestring("");  // volume identifier
   }
 
   uint32_t MTPD1::GetNumObjects(uint32_t storage1, uint32_t parent) 
   {
-    storage1_->StartGetObjectHandles(parent);
+    storage1_->StartGetObjectHandles(storage1, parent);
     int num = 0;
-    while (storage1_->GetNextObjectHandle()) num++;
+    while (storage1_->GetNextObjectHandle(storage1)) num++;
     return num;
   }
 
@@ -266,8 +265,8 @@
     else{
       write32(GetNumObjects(storage1, parent));
       int handle;
-      storage1_->StartGetObjectHandles(parent);
-      while ((handle = storage1_->GetNextObjectHandle())) write32(handle);
+      storage1_->StartGetObjectHandles(storage1, parent);
+      while ((handle = storage1_->GetNextObjectHandle(storage1))) write32(handle);
     }
   }
   
@@ -275,9 +274,10 @@
   {
     char filename[256];
     uint32_t size, parent;
-    storage1_->GetObjectInfo(handle, filename, &size, &parent);
+    uint16_t store;
+    storage1_->GetObjectInfo(handle, filename, &size, &parent, &store);
 
-    write32(1); // storage1
+    write32(store); // storage1
     write16(size == 0xFFFFFFFFUL ? 0x3001 : 0x0000); // format
     write16(0);  // protection
     write32(size); // size
@@ -320,7 +320,8 @@
       read(NULL, len * 2);
     } else {
       for (int i = 0; i < len; i++) {
-        *(buffer++) = read16();
+        int16_t c2;
+        *(buffer++) = c2 = read16();
       }
     }
   }
@@ -340,7 +341,7 @@
       case 0xd402: // friendly name
         // This is the name we'll actually see in the windows explorer.
         // Should probably be configurable.
-        writestring("Teensy");
+        writestring(MTP_NAME);
         break;
     }
   }
@@ -458,12 +459,13 @@
       uint32_t dir;
       uint32_t size;
       uint32_t parent;
-      storage1_->GetObjectInfo(p1,name,&size,&parent);
+      uint16_t store;
+      storage1_->GetObjectInfo(p1,name,&size,&parent, &store);
       dir = size == 0xFFFFFFFFUL;
       switch(p2)
       {
         case MTP_PROPERTY_STORAGE_ID:         //0xDC01:
-          write32(p1);
+          write32(store);
           break;
         case MTP_PROPERTY_OBJECT_FORMAT:      //0xDC02:
           write16(dir?0x3001:0x3000);
@@ -513,8 +515,7 @@
     uint32_t MTPD1::moveObject(uint32_t p1, uint32_t p3)
     { // p1 object
       // p3 new directory
-      storage1_->move(p1,p3);
-      return 0x2001;
+      if(storage1_->move(p1,p3)) return 0x2001; else return  0x2005;
     }
     
     void MTPD1::openSession(void)
@@ -633,7 +634,7 @@
     uint32_t len = ReadMTPHeader();
     char filename[256];
 
-    read32(); len-=4; // storage1
+    uint32_t store = read32(); len-=4; // storage1
     bool dir = read16() == 0x3001; len-=2; // format
     read16();  len-=2; // protection
     read32(); len-=4; // size
@@ -654,7 +655,7 @@
     while(len>=4) { read32(); len-=4;}
     while(len) {read8(); len--;}
     
-    return storage1_->Create(parent, dir, filename);
+    return storage1_->Create(store, parent, dir, filename);
   }
 
   void MTPD1::SendObject() {
@@ -684,7 +685,7 @@
         char filename[128];
         ReadMTPHeader();
         readstring(filename);
-//printf("MTPD1::setObjectPropValue (p1, filename): %d, %s\n", p1, filename);
+
         storage1_->rename(p1,filename);
 
         return 0x2001;
@@ -992,7 +993,7 @@
       int len=ReadMTPHeader();
       char filename[256];
 
-      read32(); len -=4; // storage1
+      int store = read32(); len -=4; // storage1
       bool dir = (read16() == 0x3001); len -=2; // format
       read16(); len -=2; // protection
       read32(); len -=4; // size
@@ -1013,7 +1014,7 @@
       while(len>=4) { read32(); len-=4;}
       while(len) {read8(); len--;}
 
-      return storage1_->Create(parent, dir, filename);
+      return storage1_->Create(store, parent, dir, filename);
     }
 
     void MTPD1::SendObject() 
@@ -1064,18 +1065,15 @@
 
     uint32_t MTPD1::setObjectPropValue(uint32_t p1, uint32_t p2)
     { pull_packet(rx_data_buffer);
-//      printContainer(); 
-      
+      //printContainer(); 
+      read(0,0);
+         
       if(p2==0xDC07)
-      {
-        char filename[128];
+      { 
+        char filename[128]; 
         ReadMTPHeader();
         readstring(filename);
-//printf("MTPD1::setObjectPropValue1 (p1, filename): %d, %s\n", p1, filename);
-
-        storage1_->rename(p1,filename);
-
-        return 0x2001;
+        if(storage1_->rename(p1,filename)) return 0x2001; else return 0x2005;
       }
       else
         return 0x2005;
@@ -1223,7 +1221,7 @@
             CONTAINER->params[0]=p1;
             //printContainer();
             memcpy(tx_data_buffer,rx_data_buffer,len);
-            push_packet(tx_data_buffer,len); // for acknowledge use rx_daza_buffer
+            push_packet(tx_data_buffer,len); // for acknowledge use rx_data_buffer
         }
       }
     }

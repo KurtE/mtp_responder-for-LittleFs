@@ -22,110 +22,86 @@
 // SOFTWARE.
 
 // modified for SDFS by WMXZ
+// Nov 2020 adapted to SdFat-beta / SD combo
 
 #include "core_pins.h"
 #include "usb_dev.h"
 #include "usb_serial.h"
 
-  #include "Storage_SPI.h"
+#include "Storage_SPI.h"
+
+  extern LittleFS_SPIFlash sdx[];
+
+  #define sd_begin(x,y) sdx[x].begin(y)
+  #define sd_open(x,y,z) sdx[x].open(y,z)
+  #define sd_mkdir(x,y) sdx[x].mkdir(y)
+  #define sd_rename(x,y,z) sdx[x].rename(y,z)
+  #define sd_remove(x,y) sdx[x].remove(y)
+  #define sd_rmdir(x,y) sdx[x].rmdir(y)
+
+  #define sd_isOpen(x)  (x)
+  #define sd_getName(x,y,n) strcpy(y,x.name())
+
+  #define indexFile "/mtpindex.dat"
+
   
-  // Call-back for file timestamps.  Only called for file create and sync().
-  #include "TimeLib.h"
-  // Call back for file timestamps.  Only called for file create and sync().
-
-
-LittleFS_SPIFlash spf;
-
-  
- bool Storage_init_spi(uint8_t cspin, SPIClass &spiport)
-{
-	
-	pinMode(cspin, INPUT_PULLUP);
-	if (!spf.begin(cspin, spiport)) {
-		return false;
-		//spf.errorHalt("spf.begin failed");
-	} else {
-		delay(10);
-		return true;
-	}
-    // Set Time callback
-    //FsDateTime::callback = dateTime;
-  }
-
-
 // TODO:
 //   support multiple storages
 //   support serialflash
 //   partial object fetch/receive
-//   events (notify usb host when local storage changes)
+//   events (notify usb host when local storage changes) (But, this seems too difficult)
 
 // These should probably be weak.
 void mtp_yield_spi() {}
 void mtp_lock_storage_spi(bool lock) {}
 
-  bool MTPStorage_SPI::readonly() { return false; }
-  bool MTPStorage_SPI::has_directories() { return true; }
-  
-  void MTPStorage_SPI::capacity(){
-	mem_available = spf.totalSize();;
-	mem_used = spf.usedSize();
-	mem_free = mem_available - mem_used;
-  }
-  
+  bool MTPStorage_SPI::readonly(uint32_t storage) { return false; }
+  bool MTPStorage_SPI::has_directories(uint32_t storage) { return true; }
+
 
 //  uint64_t MTPStorage_SPI::size() { return (uint64_t)512 * (uint64_t)spf.clusterCount()     * (uint64_t)spf.sectorsPerCluster(); }
 //  uint64_t MTPStorage_SPI::free() { return (uint64_t)512 * (uint64_t)spf.freeClusterCount() * (uint64_t)spf.sectorsPerCluster(); }
-  uint32_t MTPStorage_SPI::clusterCount() { capacity(); return mem_available; }
-  uint32_t MTPStorage_SPI::freeClusters() { capacity(); return mem_free; }
-  uint32_t MTPStorage_SPI::clusterSize() { return 0; }  
-
-
-  void MTPStorage_SPI::ResetIndex() {
-    if(!index_) return;
-    
-    mtp_lock_storage_spi(true);
-    if(index_.available()) index_.close();
-    spf.remove(indexFile);
-    index_ = spf.open(indexFile, FILE_READ);
-    mtp_lock_storage_spi(false);
-
-    all_scanned_ = false;
-    index_generated=false;
-    open_file_ = 0xFFFFFFFEUL;
-  }
+  uint32_t MTPStorage_SPI::clusterCount(uint32_t storage) { return  sdx[storage-1].totalSize(); }
+  uint32_t MTPStorage_SPI::freeClusters(uint32_t storage) { return (sdx[storage-1].totalSize()-sdx[storage-1].usedSize()); }
+  uint32_t MTPStorage_SPI::clusterSize(uint32_t storage) { return 0; }  
 
   void MTPStorage_SPI::CloseIndex()
   {
     mtp_lock_storage_spi(true);
-    index_.close();
+    if(sd_isOpen(index_)) index_.close();
     mtp_lock_storage_spi(false);
     index_generated = false;
     index_entries_ = 0;
   }
 
   void MTPStorage_SPI::OpenIndex() 
-  { 
-  if(index_) {
-	  return; // only once
-  }
+  { if(sd_isOpen(index_)) return; // only once
     mtp_lock_storage_spi(true);
-    index_ = spf.open(indexFile, FILE_WRITE);
+    index_=sd_open(0,indexFile, FILE_WRITE);
     mtp_lock_storage_spi(false);
+  }
+
+  void MTPStorage_SPI::ResetIndex() {
+    if(!sd_isOpen(index_)) return;
+    
+    CloseIndex();
+    OpenIndex();
+
+    all_scanned_ = false;
+    open_file_ = 0xFFFFFFFEUL;
   }
 
   void MTPStorage_SPI::WriteIndexRecord(uint32_t i, const Record& r) 
   {
     OpenIndex();
     mtp_lock_storage_spi(true);
-	Serial.println(index_);
     index_.seek(sizeof(r) * i);
     index_.write((char*)&r, sizeof(r));
     mtp_lock_storage_spi(false);
   }
 
   uint32_t MTPStorage_SPI::AppendIndexRecord(const Record& r) 
-  {
-    uint32_t new_record = index_entries_++;
+  { uint32_t new_record = index_entries_++;
     WriteIndexRecord(new_record, r);
     return new_record;
   }
@@ -134,6 +110,7 @@ void mtp_lock_storage_spi(bool lock) {}
   Record MTPStorage_SPI::ReadIndexRecord(uint32_t i) 
   {
     Record ret;
+    memset(&ret, 0, sizeof(ret));
     if (i > index_entries_) 
     { memset(&ret, 0, sizeof(ret));
       return ret;
@@ -146,16 +123,19 @@ void mtp_lock_storage_spi(bool lock) {}
     return ret;
   }
 
-  void MTPStorage_SPI::ConstructFilename(int i, char* out, int len) // construct filename rexursively
+  uint16_t MTPStorage_SPI::ConstructFilename(int i, char* out, int len) // construct filename rexursively
   {
-    if (i == 0) 
+    Record tmp = ReadIndexRecord(i);
+      
+    if (tmp.parent==(unsigned)i) 
     { strcpy(out, "/");
+      return tmp.store;
     }
     else 
-    { Record tmp = ReadIndexRecord(i);
-      ConstructFilename(tmp.parent, out, len);
+    { ConstructFilename(tmp.parent, out, len);
       if (out[strlen(out)-1] != '/') strcat(out, "/");
       if(((strlen(out)+strlen(tmp.name)+1) < (unsigned) len)) strcat(out, tmp.name);
+      return tmp.store;
     }
   }
 
@@ -163,10 +143,10 @@ void mtp_lock_storage_spi(bool lock) {}
   {
     if (open_file_ == i && mode_ == mode) return;
     char filename[256];
-    ConstructFilename(i, filename, 256);
+    uint16_t store = ConstructFilename(i, filename, 256);
     mtp_lock_storage_spi(true);
-    if(file_) file_.close();
-    file_ = spf.open(filename,mode);
+    if(sd_isOpen(file_)) file_.close();
+    file_=sd_open(store,filename,mode);
     open_file_ = i;
     mode_ = mode;
     mtp_lock_storage_spi(false);
@@ -175,30 +155,30 @@ void mtp_lock_storage_spi(bool lock) {}
   // MTP object handles should not change or be re-used during a session.
   // This would be easy if we could just have a list of all files in memory.
   // Since our RAM is limited, we'll keep the index in a file instead.
-  void MTPStorage_SPI::GenerateIndex()
-  {
-	///Serial.println("GenerateIndex");
-    if (index_generated) return;
+  void MTPStorage_SPI::GenerateIndex(uint32_t storage)
+  { if (index_generated) return; 
     index_generated = true;
-
     // first remove old index file
     mtp_lock_storage_spi(true);
-    spf.remove(indexFile);
+    sd_remove(0,indexFile);
     mtp_lock_storage_spi(false);
-    index_entries_ = 0;
 
+    index_entries_ = 0;
     Record r;
-    r.parent = 0;
-    r.sibling = 0;
-    r.child = 0;
-    r.isdir = true;
-    r.scanned = false;
-    strcpy(r.name, "/");
-    AppendIndexRecord(r);
+    for(int ii=0; ii<num_storage; ii++)
+    {
+      r.store = ii; // store is typically (storage-1) //store 0...6; storage 1...7
+      r.parent = ii;
+      r.sibling = 0;
+      r.child = 0;
+      r.isdir = true;
+      r.scanned = false;
+      strcpy(r.name, "/");
+      AppendIndexRecord(r);
+    }
   }
 
-
-  void MTPStorage_SPI::ScanDir(uint32_t i) 
+  void MTPStorage_SPI::ScanDir(uint32_t storage, uint32_t i) 
   {
     Record record = ReadIndexRecord(i);
     if (record.isdir && !record.scanned) {
@@ -208,9 +188,9 @@ void mtp_lock_storage_spi(bool lock) {}
 		char str1[65] = "/";
 		strncat(str1, record.name,64);
 		//Serial.println(str1);
-		printDirectory1(spf.open(str1), 0);
+		printDirectory1(sdx[storage-1].open(str1), 0);
 	} else {
-		printDirectory1(spf.open(record.name), 0);
+		printDirectory1(sdx[storage-1].open(record.name), 0);
 	}
 
       OpenFileByIndex(i);
@@ -232,9 +212,9 @@ void mtp_lock_storage_spi(bool lock) {}
 				r.name[j] = entries[rec_count].name[j];
         sibling = AppendIndexRecord(r);
 
-Serial.printf("ScanDir1\n\tIndex: %d\n", i);
-Serial.printf("\tname: %s, parent: %d, child: %d, sibling: %d\n", r.name, r.parent, r.child, r.sibling);
-Serial.printf("\tIsdir: %d, IsScanned: %d\n", r.isdir, r.scanned);
+//Serial.printf("ScanDir1\n\tIndex: %d\n", i);
+//Serial.printf("\tname: %s, parent: %d, child: %d, sibling: %d\n", r.name, r.parent, r.child, r.sibling);
+//Serial.printf("\tIsdir: %d, IsScanned: %d\n", r.isdir, r.scanned);
       }
       record.scanned = true;
       record.child = sibling;
@@ -242,37 +222,41 @@ Serial.printf("\tIsdir: %d, IsScanned: %d\n", r.isdir, r.scanned);
     }
   }
 
-  void MTPStorage_SPI::ScanAll() 
-  {
-    if (all_scanned_) return;
+  void MTPStorage_SPI::ScanAll(uint32_t storage) 
+  { if (all_scanned_) return;
     all_scanned_ = true;
 
-    GenerateIndex();
-    for (uint32_t i = 0; i < index_entries_; i++)  ScanDir(i);
+    GenerateIndex(storage);
+    for (uint32_t i = 0; i < index_entries_; i++)  ScanDir(storage,i);
   }
 
-  void MTPStorage_SPI::StartGetObjectHandles(uint32_t parent) 
-  {
-    GenerateIndex();
-    if (parent) 
-    { if (parent == 0xFFFFFFFF) parent = 0;
+  void  MTPStorage_SPI::setStorageNumbers(const char **str, int num) {sd_str = str; num_storage=num;}
+  uint32_t MTPStorage_SPI::getNumStorage() {return num_storage;}
+  const char * MTPStorage_SPI::getStorageName(uint32_t storage) {return sd_str[storage-1];}
 
-      ScanDir(parent);
+  void MTPStorage_SPI::StartGetObjectHandles(uint32_t storage, uint32_t parent) 
+  { 
+    GenerateIndex(storage);
+    if (parent) 
+    { if (parent == 0xFFFFFFFF) parent = storage-1; // As per initizalization
+
+      ScanDir(storage, parent);
       follow_sibling_ = true;
       // Root folder?
       next_ = ReadIndexRecord(parent).child;
     } 
     else 
-    { ScanAll();
+    { 
+      ScanAll(storage);
       follow_sibling_ = false;
       next_ = 1;
     }
   }
 
-  uint32_t MTPStorage_SPI::GetNextObjectHandle()
+  uint32_t MTPStorage_SPI::GetNextObjectHandle(uint32_t  storage)
   {
-    while (true) {
-      if (next_ == 0) return 0;
+    while (true) 
+    { if (next_ == 0) return 0;
 
       int ret = next_;
       Record r = ReadIndexRecord(ret);
@@ -280,20 +264,20 @@ Serial.printf("\tIsdir: %d, IsScanned: %d\n", r.isdir, r.scanned);
       { next_ = r.sibling;
       } 
       else 
-      {
-        next_++;
+      { next_++;
         if (next_ >= index_entries_) next_ = 0;
       }
       if (r.name[0]) return ret;
     }
   }
 
-  void MTPStorage_SPI::GetObjectInfo(uint32_t handle, char* name, uint32_t* size, uint32_t* parent)
+  void MTPStorage_SPI::GetObjectInfo(uint32_t handle, char* name, uint32_t* size, uint32_t* parent, uint16_t *store)
   {
     Record r = ReadIndexRecord(handle);
     strcpy(name, r.name);
     *parent = r.parent;
     *size = r.isdir ? 0xFFFFFFFFUL : r.child;
+    *store = r.store;
   }
 
   uint32_t MTPStorage_SPI::GetSize(uint32_t handle) 
@@ -328,7 +312,7 @@ Serial.printf("\tIsdir: %d, IsScanned: %d\n", r.isdir, r.scanned);
     ConstructFilename(object, filename, 256);
     bool success;
     mtp_lock_storage_spi(true);
-    if (r.isdir) success = spf.rmdir(filename); else  success = spf.remove(filename);
+    if (r.isdir) success = sd_rmdir(0,filename); else  success = sd_remove(0,filename);
     mtp_lock_storage_spi(false);
     if (!success) return false;
     
@@ -357,7 +341,7 @@ Serial.printf("\tIsdir: %d, IsScanned: %d\n", r.isdir, r.scanned);
     return true;
   }
 
-  uint32_t MTPStorage_SPI::Create(uint32_t parent,  bool folder, const char* filename)
+  uint32_t MTPStorage_SPI::Create(uint32_t storage, uint32_t parent,  bool folder, const char* filename)
   {
     uint32_t ret;
     if (parent == 0xFFFFFFFFUL) parent = 0;
@@ -365,6 +349,7 @@ Serial.printf("\tIsdir: %d, IsScanned: %d\n", r.isdir, r.scanned);
     Record r;
     if (strlen(filename) > 62) return 0;
     strcpy(r.name, filename);
+    r.store = p.store;
     r.parent = parent;
     r.child = 0;
     r.sibling = p.child;
@@ -376,9 +361,9 @@ Serial.printf("\tIsdir: %d, IsScanned: %d\n", r.isdir, r.scanned);
     if (folder) 
     {
       char filename[256];
-      ConstructFilename(ret, filename, 256);
+      uint16_t store =ConstructFilename(ret, filename, 256);
       mtp_lock_storage_spi(true);
-      spf.mkdir(filename);
+      sd_mkdir(store,filename);
       mtp_lock_storage_spi(false);
     } 
     else 
@@ -407,63 +392,95 @@ Serial.printf("\tIsdir: %d, IsScanned: %d\n", r.isdir, r.scanned);
     open_file_ = 0xFFFFFFFEUL;
   }
 
-  void MTPStorage_SPI::rename(uint32_t handle, const char* name) 
-  { 
-    char oldName[256];
+  bool MTPStorage_SPI::rename(uint32_t handle, const char* name) 
+  { char oldName[256];
     char newName[256];
-	
-Serial.printf("-----------------  Rename Debug ---------------\n");
+    char temp[64];
 
-    ConstructFilename(handle, oldName, 256);
-Serial.printf("Handle/oldname:  %d, %s\n", handle, oldName);
+    Serial.print(handle); Serial.print(" "); Serial.println(name);
+    uint16_t store = ConstructFilename(handle, oldName, 256);
+    Serial.println(oldName);
+
     Record p1 = ReadIndexRecord(handle);
+    Serial.print(handle); Serial.print(" "); Serial.println(p1.name);
+    strcpy(temp,p1.name);
     strcpy(p1.name,name);
-	
-Serial.printf("Rename record before\n\tIndex: %d\n", handle);
-Serial.printf("\tname: %s, parent: %d, child: %d, sibling: %d\n", p1.name, p1.parent, p1.child, p1.sibling);
-Serial.printf("\tIsdir: %d, IsScanned: %d\n", p1.isdir, p1.scanned);
-	
+
     WriteIndexRecord(handle, p1);
-	
-p1 = ReadIndexRecord(handle);
-Serial.printf("Rename record After\n\tIndex: %d\n", handle);
-Serial.printf("\tname: %s, parent: %d, child: %d, sibling: %d\n", p1.name, p1.parent, p1.child, p1.sibling);
-Serial.printf("\tIsdir: %d, IsScanned: %d\n", p1.isdir, p1.scanned);
-
     ConstructFilename(handle, newName, 256);
-Serial.printf("Handle/oldname:  %d, %s\n", handle, newName);
-    spf.rename(oldName,newName);
 
+    if (sd_rename(store,oldName,newName)) return true;
+
+    // rename failed; undo index update
+    strcpy(p1.name,temp);
+    WriteIndexRecord(handle, p1);
+    return false;
   }
 
-  void MTPStorage_SPI::move(uint32_t handle, uint32_t newParent ) 
+  bool MTPStorage_SPI::move(uint32_t handle, uint32_t newParent ) 
   { 
+    Record p1 = ReadIndexRecord(handle); 
+
+    uint32_t oldParent = p1.parent;
+    Record p2 = ReadIndexRecord(newParent);
+    Record p3 = ReadIndexRecord(oldParent); 
+
     char oldName[256];
-    char newName[256];
+    uint16_t store0 = ConstructFilename(handle, oldName, 256);
 
-    ConstructFilename(handle, oldName, 256);
-    Record p1 = ReadIndexRecord(handle);
+    if(p1.store != p2.store) return false;
 
-    if (newParent == 0xFFFFFFFFUL) newParent = 0;
-    Record p2 = ReadIndexRecord(newParent); // is pointing to last object in directory
+    // rmove from old list
+    // find next record in oldParent
+    Record py = p3;
+    uint32_t jy=py.child; 
+    py = ReadIndexRecord(jy);
+    if(handle==jy)
+    { // is latest record in list;
+      p3.child=py.sibling; // simply link parent to older sibling
+    }
+    else
+    {
+      while(!(py.sibling==handle))
+      { jy=py.sibling;  py = ReadIndexRecord(jy);
+      }
+      py.sibling=p1.sibling;
+    }
 
-    p1.sibling = p2.child;
+    // add to new list
+    // find first record in newParent
+    Record px = p2;
+
+    uint32_t jx=px.child;
+    if(!jx) // have no child yet
+    {
+      px.child=handle;
+    }
+    else
+    { 
+      px = ReadIndexRecord(jx);
+      for(; ; jx=px.sibling) 
+      { px = ReadIndexRecord(jx);
+        if(!px.sibling) break;
+      }
+      // jx points to first record
+
+      px.sibling = handle;
+    }
+    p1.sibling = 0;
     p1.parent = newParent;
 
-    p2.child = handle; 
     WriteIndexRecord(handle, p1);
     WriteIndexRecord(newParent, p2);
+    WriteIndexRecord(oldParent, p3);
+    if(jx!=newParent) WriteIndexRecord(jx, px);
+    if(jy!=handle) WriteIndexRecord(jy, py);
 
+    char newName[256];
     ConstructFilename(handle, newName, 256);
-    spf.rename(oldName,newName);
-  }
-  
 
-void MTPStorage_SPI::printDirectory() {
-  Serial.println("printDirectory\n--------------");
-  printDirectory1(spf.open("/"), 0);
-  //Serial.println();
-}
+    return sd_rename(store0,oldName,newName);
+  }
 
 
 void MTPStorage_SPI::printDirectory1(File dir, int numTabs) {
