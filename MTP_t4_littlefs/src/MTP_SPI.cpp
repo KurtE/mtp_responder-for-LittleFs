@@ -25,7 +25,7 @@
 
 #if defined(USB_MTPDISK) || defined(USB_MTPDISK_SERIAL)
 
-#include "MTP_LFS.h"
+#include "MTP_SPI.h"
 
 #undef USB_DESC_LIST_DEFINE
 #include "usb_desc.h"

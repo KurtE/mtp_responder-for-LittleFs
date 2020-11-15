@@ -424,7 +424,7 @@ void mtp_lock_storage_spi(bool lock) {}
     }
   }
 
-  void printRecord(int h, Record *p) 
+  void MTPStorage_SPI::printRecord(int h, Record *p) 
   { Serial.printf("%d: %d %d %d %d\n",h, p->isdir,p->parent,p->sibling,p->child); }
   
 /*

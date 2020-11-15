@@ -169,6 +169,7 @@ private:
   void ResetIndex() override ;
   
 void printDirectory1(File dir, int numTabs);
+void printRecord(int h, Record *p); 
 
 };
 

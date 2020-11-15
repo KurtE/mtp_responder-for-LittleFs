@@ -23,8 +23,8 @@
 
 // modified for SDFS by WMXZ
 
-#ifndef MTP_H
-#define MTP_H
+#ifndef MTP_RAM_H
+#define MTP_RAM_H
 
 #if !defined(USB_MTPDISK) && !defined(USB_MTPDISK_SERIAL)
   #error "You need to select USB Type: 'MTP Disk (Experimental)'"
@@ -33,7 +33,7 @@
 #include "core_pins.h"
 #include "usb_dev.h"
 
-	#include "Storage_SPI.h"
+	#include "Storage_RAM.h"
 // modify strings if needed (see MTP.cpp how they are used)
 #define MTP_MANUF "PJRC"
 #define MTP_MODEL "Teensy"
@@ -42,11 +42,11 @@
 #define MTP_NAME  "Teensy"
 
 // MTP Responder.
-class MTPD_SPI {
+class MTPD_RAM {
 public:
-  explicit MTPD_SPI(MTPStorageInterface1* storage1) : storage1_(storage1) {}
+  explicit MTPD_RAM(MTPStorageInterface2* storage2) : storage2_(storage2) {}
 private:
-  MTPStorageInterface1* storage1_;
+  MTPStorageInterface2* storage2_;
 
 
   struct MTPHeader {
@@ -141,5 +141,6 @@ public:
   void loop(void) ;
   void test(void) ;
 };
+
 
 #endif

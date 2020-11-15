@@ -1,5 +1,5 @@
 #include "Arduino.h"
-#include "MTP_LFS.h"
+#include "MTP_SPI.h"
 #include "usb1_mtp.h"
 
   #define SD_MOSI 11
@@ -16,7 +16,7 @@
 LittleFS_SPIFlash sdx[nsd];
 
 MTPStorage_SPI storage1;
-MTPD1       mtpd1(&storage1);
+MTPD_SPI       mtpd1(&storage1);
 
 void storage_configure(MTPStorage_SPI *storage1, const char **sd_str, const int *cs, LittleFS_SPIFlash *sdx, int num)
 {
@@ -30,7 +30,7 @@ void storage_configure(MTPStorage_SPI *storage1, const char **sd_str, const int 
 
     for(int ii=0; ii<nsd; ii++){
         pinMode(cs[ii],OUTPUT); digitalWriteFast(cs[ii],HIGH);
-        if(!sdx[ii].begin(cs[ii])) {Serial.println("No storage"); while(1);}
+        if(!sdx[ii].begin(cs[ii], SPI)) {Serial.println("No storage"); while(1);}
 
         //uint32_t volCount  = sdx[ii].clusterCount();
         //uint32_t volFree  = sdx[ii].freeClusterCount();

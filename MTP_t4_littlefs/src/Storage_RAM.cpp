@@ -22,106 +22,85 @@
 // SOFTWARE.
 
 // modified for SDFS by WMXZ
+// Nov 2020 adapted to SdFat-beta / SD combo
 
 #include "core_pins.h"
 #include "usb_dev.h"
 #include "usb_serial.h"
 
-  #include "Storage_RAM.h"
+#include "Storage_RAM.h"
+
+  extern LittleFS_RAM sdp[];
+  #define sdp_begin(x,y) sdp[x].begin(y)
+  #define sdp_open(x,y,z) sdp[x].open(y,z)
+  #define sdp_mkdir(x,y) sdp[x].mkdir(y)
+  #define sdp_rename(x,y,z) sdp[x].rename(y,z)
+  #define sdp_remove(x,y) sdp[x].remove(y)
+  #define sdp_rmdir(x,y) sdp[x].rmdir(y)
+
+  #define sdp_isOpen(x)  (x)
+  #define sdp_getName(x,y,n) strcpy(y,x.name())
+
+  #define indexFile "/mtpindex.dat"
+
   
-  // Call-back for file timestamps.  Only called for file create and sync().
-  #include "TimeLib.h"
-  // Call back for file timestamps.  Only called for file create and sync().
-
-
-LittleFS_RAM ram;
-  
- bool Storage_init_ram(void *ptr, uint32_t size)
-  {
-	if (!ram.begin(ptr, size)) {
-		return false;
-		//ram.errorHalt("ram.begin failed");
-	} else {
-		delay(10);
-		return true;
-	}
-    // Set Time callback
-    //FsDateTime::callback = dateTime;
-  }
-
-
 // TODO:
 //   support multiple storages
 //   support serialflash
 //   partial object fetch/receive
-//   events (notify usb host when local storage changes)
+//   events (notify usb host when local storage changes) (But, this seems too difficult)
 
 // These should probably be weak.
 void mtp_yield_ram() {}
 void mtp_lock_storage_ram(bool lock) {}
 
-  bool MTPStorage_RAM::readonly() { return false; }
-  bool MTPStorage_RAM::has_directories() { return true; }
-  
-  void MTPStorage_RAM::capacity(){
-	mem_available = ram.totalSize();;
-	mem_used = ram.usedSize();
-	mem_free = mem_available - mem_used;
-  }
-  
+  bool MTPStorage_RAM::readonly(uint32_t storage) { return false; }
+  bool MTPStorage_RAM::has_directories(uint32_t storage) { return true; }
 
-//  uint64_t MTPStorage_SPI::size() { return (uint64_t)512 * (uint64_t)spf.clusterCount()     * (uint64_t)spf.sectorsPerCluster(); }
-//  uint64_t MTPStorage_SPI::free() { return (uint64_t)512 * (uint64_t)spf.freeClusterCount() * (uint64_t)spf.sectorsPerCluster(); }
-  uint32_t MTPStorage_RAM::clusterCount() { capacity(); return mem_available; }
-  uint32_t MTPStorage_RAM::freeClusters() { capacity(); return mem_free; }
-  uint32_t MTPStorage_RAM::clusterSize() { return 0; }  
 
-  void MTPStorage_RAM::ResetIndex() {
-    if(!index_) return;
-    
-    mtp_lock_storage_ram(true);
-    if(index_.available()) index_.close();
-    ram.remove(indexFile);
-    index_ = ram.open(indexFile, FILE_READ);
-    mtp_lock_storage_ram(false);
-
-    all_scanned_ = false;
-    index_generated=false;
-    open_file_ = 0xFFFFFFFEUL;
-  }
+//  uint64_t MTPStorage_RAM::size() { return (uint64_t)512 * (uint64_t)spf.clusterCount()     * (uint64_t)spf.sectorsPerCluster(); }
+//  uint64_t MTPStorage_RAM::free() { return (uint64_t)512 * (uint64_t)spf.freeClusterCount() * (uint64_t)spf.sectorsPerCluster(); }
+  uint32_t MTPStorage_RAM::clusterCount(uint32_t storage) { return  sdp[storage-1].totalSize(); }
+  uint32_t MTPStorage_RAM::freeClusters(uint32_t storage) { return (sdp[storage-1].totalSize()-sdp[storage-1].usedSize()); }
+  uint32_t MTPStorage_RAM::clusterSize(uint32_t storage) { return 0; }  
 
   void MTPStorage_RAM::CloseIndex()
   {
     mtp_lock_storage_ram(true);
-    index_.close();
+    if(sdp_isOpen(index_)) index_.close();
     mtp_lock_storage_ram(false);
     index_generated = false;
     index_entries_ = 0;
   }
 
   void MTPStorage_RAM::OpenIndex() 
-  { 
-  if(index_) {
-	  return; // only once
-  }
+  { if(sdp_isOpen(index_)) return; // only once
     mtp_lock_storage_ram(true);
-    index_ = ram.open(indexFile, FILE_WRITE);
+    index_=sdp_open(0,indexFile, FILE_WRITE);
     mtp_lock_storage_ram(false);
+  }
+
+  void MTPStorage_RAM::ResetIndex() {
+    if(!sdp_isOpen(index_)) return;
+    
+    CloseIndex();
+    OpenIndex();
+
+    all_scanned_ = false;
+    open_file_ = 0xFFFFFFFEUL;
   }
 
   void MTPStorage_RAM::WriteIndexRecord(uint32_t i, const Record& r) 
   {
     OpenIndex();
     mtp_lock_storage_ram(true);
-	Serial.println(index_);
     index_.seek(sizeof(r) * i);
     index_.write((char*)&r, sizeof(r));
     mtp_lock_storage_ram(false);
   }
 
   uint32_t MTPStorage_RAM::AppendIndexRecord(const Record& r) 
-  {
-    uint32_t new_record = index_entries_++;
+  { uint32_t new_record = index_entries_++;
     WriteIndexRecord(new_record, r);
     return new_record;
   }
@@ -130,6 +109,7 @@ void mtp_lock_storage_ram(bool lock) {}
   Record MTPStorage_RAM::ReadIndexRecord(uint32_t i) 
   {
     Record ret;
+    memset(&ret, 0, sizeof(ret));
     if (i > index_entries_) 
     { memset(&ret, 0, sizeof(ret));
       return ret;
@@ -142,16 +122,19 @@ void mtp_lock_storage_ram(bool lock) {}
     return ret;
   }
 
-  void MTPStorage_RAM::ConstructFilename(int i, char* out, int len) // construct filename rexursively
+  uint16_t MTPStorage_RAM::ConstructFilename(int i, char* out, int len) // construct filename rexursively
   {
-    if (i == 0) 
+    Record tmp = ReadIndexRecord(i);
+      
+    if (tmp.parent==(unsigned)i) 
     { strcpy(out, "/");
+      return tmp.store;
     }
     else 
-    { Record tmp = ReadIndexRecord(i);
-      ConstructFilename(tmp.parent, out, len);
+    { ConstructFilename(tmp.parent, out, len);
       if (out[strlen(out)-1] != '/') strcat(out, "/");
       if(((strlen(out)+strlen(tmp.name)+1) < (unsigned) len)) strcat(out, tmp.name);
+      return tmp.store;
     }
   }
 
@@ -159,10 +142,10 @@ void mtp_lock_storage_ram(bool lock) {}
   {
     if (open_file_ == i && mode_ == mode) return;
     char filename[256];
-    ConstructFilename(i, filename, 256);
+    uint16_t store = ConstructFilename(i, filename, 256);
     mtp_lock_storage_ram(true);
-    if(file_) file_.close();
-    file_ = ram.open(filename,mode);
+    if(sdp_isOpen(file_)) file_.close();
+    file_=sdp_open(store,filename,mode);
     open_file_ = i;
     mode_ = mode;
     mtp_lock_storage_ram(false);
@@ -171,42 +154,43 @@ void mtp_lock_storage_ram(bool lock) {}
   // MTP object handles should not change or be re-used during a session.
   // This would be easy if we could just have a list of all files in memory.
   // Since our RAM is limited, we'll keep the index in a file instead.
-  void MTPStorage_RAM::GenerateIndex()
-  {
-	///Serial.println("GenerateIndex");
-    if (index_generated) return;
+  void MTPStorage_RAM::GenerateIndex(uint32_t storage)
+  { if (index_generated) return; 
     index_generated = true;
-
     // first remove old index file
     mtp_lock_storage_ram(true);
-    ram.remove(indexFile);
+    sdp_remove(0,indexFile);
     mtp_lock_storage_ram(false);
-    index_entries_ = 0;
 
+    index_entries_ = 0;
     Record r;
-    r.parent = 0;
-    r.sibling = 0;
-    r.child = 0;
-    r.isdir = true;
-    r.scanned = false;
-    strcpy(r.name, "/");
-    AppendIndexRecord(r);
+    for(int ii=0; ii<num_storage; ii++)
+    {
+      r.store = ii; // store is typically (storage-1) //store 0...6; storage 1...7
+      r.parent = ii;
+      r.sibling = 0;
+      r.child = 0;
+      r.isdir = true;
+      r.scanned = false;
+      strcpy(r.name, "/");
+      AppendIndexRecord(r);
+    }
   }
 
-
-  void MTPStorage_RAM::ScanDir(uint32_t i) 
-  {
-    Record record = ReadIndexRecord(i);
+  void MTPStorage_RAM::ScanDir(uint32_t storage, uint32_t i) 
+  { Record record = ReadIndexRecord(i);
+//Serial.printf("ScanDir1 on entering\n\tIndex: %d\n", i);
+//Serial.printf("\tname: %s, parent: %d, child: %d, sibling: %d\n", record.name, record.parent, record.child, record.sibling);
+//Serial.printf("\tIsdir: %d, IsScanned: %d\n", record.isdir,record.scanned);
+  
     if (record.isdir && !record.scanned) {
 		//need to convert record name to string and add a "/" if not just a /
-	//Serial.println(record.name);
 	if(strcmp(record.name, "/") != 0) {
 		char str1[65] = "/";
 		strncat(str1, record.name,64);
-		//Serial.println(str1);
-		printDirectory1(ram.open(str1), 0);
+		printDirectory1(sdp[record.store].open(str1), 0);
 	} else {
-		printDirectory1(ram.open(record.name), 0);
+		printDirectory1(sdp[record.store].open(record.name), 0);
 	}
 
       OpenFileByIndex(i);
@@ -218,6 +202,7 @@ void mtp_lock_storage_ram(bool lock) {}
       for(uint16_t rec_count=0; rec_count<entry_cnt; rec_count++) 
       {
         Record r;
+		r.store = record.store;
         r.parent = i;
         r.sibling = sibling;
         r.isdir = entries[rec_count].isDir;
@@ -238,37 +223,41 @@ void mtp_lock_storage_ram(bool lock) {}
     }
   }
 
-  void MTPStorage_RAM::ScanAll() 
-  {
-    if (all_scanned_) return;
+  void MTPStorage_RAM::ScanAll(uint32_t storage) 
+  { if (all_scanned_) return;
     all_scanned_ = true;
 
-    GenerateIndex();
-    for (uint32_t i = 0; i < index_entries_; i++)  ScanDir(i);
+    GenerateIndex(storage);
+    for (uint32_t i = 0; i < index_entries_; i++)  ScanDir(storage,i);
   }
 
-  void MTPStorage_RAM::StartGetObjectHandles(uint32_t parent) 
-  {
-    GenerateIndex();
-    if (parent) 
-    { if (parent == 0xFFFFFFFF) parent = 0;
+  void  MTPStorage_RAM::setStorageNumbers(const char **str, int num) {sd_str = str; num_storage=num;}
+  uint32_t MTPStorage_RAM::getNumStorage() {return num_storage;}
+  const char * MTPStorage_RAM::getStorageName(uint32_t storage) {return sd_str[storage-1];}
 
-      ScanDir(parent);
+  void MTPStorage_RAM::StartGetObjectHandles(uint32_t storage, uint32_t parent) 
+  { 
+    GenerateIndex(storage);
+    if (parent) 
+    { if (parent == 0xFFFFFFFF) parent = storage-1; // As per initizalization
+
+      ScanDir(storage, parent);
       follow_sibling_ = true;
       // Root folder?
       next_ = ReadIndexRecord(parent).child;
     } 
     else 
-    { ScanAll();
+    { 
+      ScanAll(storage);
       follow_sibling_ = false;
       next_ = 1;
     }
   }
 
-  uint32_t MTPStorage_RAM::GetNextObjectHandle()
+  uint32_t MTPStorage_RAM::GetNextObjectHandle(uint32_t  storage)
   {
-    while (true) {
-      if (next_ == 0) return 0;
+    while (true) 
+    { if (next_ == 0) return 0;
 
       int ret = next_;
       Record r = ReadIndexRecord(ret);
@@ -276,20 +265,20 @@ void mtp_lock_storage_ram(bool lock) {}
       { next_ = r.sibling;
       } 
       else 
-      {
-        next_++;
+      { next_++;
         if (next_ >= index_entries_) next_ = 0;
       }
       if (r.name[0]) return ret;
     }
   }
 
-  void MTPStorage_RAM::GetObjectInfo(uint32_t handle, char* name, uint32_t* size, uint32_t* parent)
+  void MTPStorage_RAM::GetObjectInfo(uint32_t handle, char* name, uint32_t* size, uint32_t* parent, uint16_t *store)
   {
     Record r = ReadIndexRecord(handle);
     strcpy(name, r.name);
     *parent = r.parent;
     *size = r.isdir ? 0xFFFFFFFFUL : r.child;
+    *store = r.store;
   }
 
   uint32_t MTPStorage_RAM::GetSize(uint32_t handle) 
@@ -324,7 +313,7 @@ void mtp_lock_storage_ram(bool lock) {}
     ConstructFilename(object, filename, 256);
     bool success;
     mtp_lock_storage_ram(true);
-    if (r.isdir) success = ram.rmdir(filename); else  success = ram.remove(filename);
+    if (r.isdir) success = sdp_rmdir(0,filename); else  success = sdp_remove(0,filename);
     mtp_lock_storage_ram(false);
     if (!success) return false;
     
@@ -353,7 +342,7 @@ void mtp_lock_storage_ram(bool lock) {}
     return true;
   }
 
-  uint32_t MTPStorage_RAM::Create(uint32_t parent,  bool folder, const char* filename)
+  uint32_t MTPStorage_RAM::Create(uint32_t storage, uint32_t parent,  bool folder, const char* filename)
   {
     uint32_t ret;
     if (parent == 0xFFFFFFFFUL) parent = 0;
@@ -361,6 +350,7 @@ void mtp_lock_storage_ram(bool lock) {}
     Record r;
     if (strlen(filename) > 62) return 0;
     strcpy(r.name, filename);
+    r.store = p.store;
     r.parent = parent;
     r.child = 0;
     r.sibling = p.child;
@@ -372,9 +362,9 @@ void mtp_lock_storage_ram(bool lock) {}
     if (folder) 
     {
       char filename[256];
-      ConstructFilename(ret, filename, 256);
+      uint16_t store =ConstructFilename(ret, filename, 256);
       mtp_lock_storage_ram(true);
-      ram.mkdir(filename);
+      sdp_mkdir(store,filename);
       mtp_lock_storage_ram(false);
     } 
     else 
@@ -403,48 +393,111 @@ void mtp_lock_storage_ram(bool lock) {}
     open_file_ = 0xFFFFFFFEUL;
   }
 
-  void MTPStorage_RAM::rename(uint32_t handle, const char* name) 
-  { 
-    char oldName[256];
+  bool MTPStorage_RAM::rename(uint32_t handle, const char* name) 
+  { char oldName[256];
     char newName[256];
+    char temp[64];
 
-    ConstructFilename(handle, oldName, 256);
+    uint16_t store = ConstructFilename(handle, oldName, 256);
+    Serial.println(oldName);
+
     Record p1 = ReadIndexRecord(handle);
+    strcpy(temp,p1.name);
     strcpy(p1.name,name);
+
     WriteIndexRecord(handle, p1);
     ConstructFilename(handle, newName, 256);
 
-    //ram.rename(oldName,newName);
-  }
+    if (sdp_rename(store,oldName,newName)) return true;
 
-  void MTPStorage_RAM::move(uint32_t handle, uint32_t newParent ) 
-  { 
-    char oldName[256];
-    char newName[256];
-
-    ConstructFilename(handle, oldName, 256);
-    Record p1 = ReadIndexRecord(handle);
-
-    if (newParent == 0xFFFFFFFFUL) newParent = 0;
-    Record p2 = ReadIndexRecord(newParent); // is pointing to last object in directory
-
-    p1.sibling = p2.child;
-    p1.parent = newParent;
-
-    p2.child = handle; 
+    // rename failed; undo index update
+    strcpy(p1.name,temp);
     WriteIndexRecord(handle, p1);
-    WriteIndexRecord(newParent, p2);
-
-    ConstructFilename(handle, newName, 256);
-    //ram.rename(oldName,newName);
+    return false;
   }
+
+  void MTPStorage_RAM::printIndexList(void)
+  {
+    for(uint32_t ii=0; ii<index_entries_; ii++)
+    { Record p = ReadIndexRecord(ii);
+      Serial.printf("%d: %d %d %d %d %s\n",ii, p.isdir,p.parent,p.sibling,p.child,p.name);
+    }
+  }
+
+  void MTPStorage_RAM::printRecord(int h, Record *p) 
+  { Serial.printf("%d: %d %d %d %d\n",h, p->isdir,p->parent,p->sibling,p->child); }
   
+/*
+ * //index list management for moving object around
+ * p1 is record of handle
+ * p2 is record of new dir
+ * p3 is record of old dir
+ * 
+ *  // remove from old direcory
+ * if p3.child == handle  / handle is last in old dir
+ *      p3.child = p1.sibling   / simply relink old dir
+ *      save p3
+ * else
+ *      px record of p3.child
+ *      while( px.sibling != handle ) update px = record of px.sibling
+ *      px.sibling = p1.sibling
+ *      save px
+ * 
+ *  // add to new directory
+ * p1.parent = new
+ * p1.sibling = p2.child
+ * p2.child = handle
+ * save p1
+ * save p2
+ * 
+ */
 
-void MTPStorage_RAM::printDirectory() {
-  Serial.println("printDirectory\n--------------");
-  printDirectory1(ram.open("/"), 0);
-  //Serial.println();
-}
+
+  bool MTPStorage_RAM::move(uint32_t handle, uint32_t newParent ) 
+  { 
+    Record p1 = ReadIndexRecord(handle); 
+
+    uint32_t oldParent = p1.parent;
+    Record p2 = ReadIndexRecord(newParent);
+    Record p3 = ReadIndexRecord(oldParent); 
+
+    char oldName[256];
+    uint16_t store0 = ConstructFilename(handle, oldName, 256);
+
+    if(p1.store != p2.store) return false;
+
+    // remove from old direcory
+    if(p3.child==handle)
+    {
+      p3.child = p1.sibling;
+      WriteIndexRecord(oldParent, p3);    
+    }
+    else
+    { uint32_t jx = p3.child;
+      Record px = ReadIndexRecord(jx); 
+      while(handle != px.sibling)
+      {
+        jx = px.sibling;
+        px = ReadIndexRecord(jx); 
+      }
+      px.sibling = p1.sibling;
+      WriteIndexRecord(jx, px);
+    }
+  
+    // add to new directory
+    p1.parent = newParent;
+    p1.sibling = p2.child;
+    p2.child = handle;
+    WriteIndexRecord(handle, p1);
+    WriteIndexRecord(newParent,p2);
+
+    char newName[256];
+    ConstructFilename(handle, newName, 256);
+//    Serial.println(newName);
+//    printIndexList();
+
+    return sdp_rename(store0,oldName,newName);
+  }
 
 
 void MTPStorage_RAM::printDirectory1(File dir, int numTabs) {
@@ -458,18 +511,18 @@ void MTPStorage_RAM::printDirectory1(File dir, int numTabs) {
       //Serial.println("**nomorefiles**");
       break;
     }
-    for (uint8_t i = 0; i < numTabs; i++) {
-      Serial.print('\t');
-    }
+    //for (uint8_t i = 0; i < numTabs; i++) {
+    //  Serial.print('\t');
+    //}
 
     if(entry.isDirectory()) {
-      Serial.print("DIR\t");
+      //Serial.print("DIR\t");
       entries[entry_cnt].isDir = 1;
     } else {
-      Serial.print("FILE\t");
+      //Serial.print("FILE\t");
       entries[entry_cnt].isDir = 0;
     }
-    Serial.print(entry.name());
+    Serial.println(entry.name());
     
     if (entry.isDirectory()) {
       cx = snprintf ( buffer, 64, "%s", entry.name() );
@@ -482,7 +535,7 @@ void MTPStorage_RAM::printDirectory1(File dir, int numTabs) {
       //printDirectory1(entry, numTabs + 1);
     } else {
       // files have sizes, directories do not
-      Serial.print("\t\t");
+      //Serial.print("\t\t");
       //Serial.println(entry.size(), DEC);
       cx = snprintf ( buffer, 64, "%s", entry.name() );
 		entries[entry_cnt].fnamelen = cx;
