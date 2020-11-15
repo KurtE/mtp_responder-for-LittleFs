@@ -181,16 +181,21 @@ void mtp_lock_storage_spi(bool lock) {}
   void MTPStorage_SPI::ScanDir(uint32_t storage, uint32_t i) 
   {
     Record record = ReadIndexRecord(i);
+//Serial.printf("ScanDir1 on entering\n\tIndex: %d\n", i);
+//Serial.printf("\tname: %s, parent: %d, child: %d, sibling: %d\n", record.name, record.parent, record.child, record.sibling);
+//Serial.printf("\tIsdir: %d, IsScanned: %d\n", record.isdir,record.scanned);
+  
     if (record.isdir && !record.scanned) {
 		//need to convert record name to string and add a "/" if not just a /
 	//Serial.println(record.name);
+	Serial.println(storage - 1);
 	if(strcmp(record.name, "/") != 0) {
 		char str1[65] = "/";
 		strncat(str1, record.name,64);
-		//Serial.println(str1);
-		printDirectory1(sdx[storage-1].open(str1), 0);
+Serial.println(str1);
+		printDirectory1(sdx[record.store].open(str1), 0);
 	} else {
-		printDirectory1(sdx[storage-1].open(record.name), 0);
+		printDirectory1(sdx[record.store].open(record.name), 0);
 	}
 
       OpenFileByIndex(i);
@@ -202,6 +207,7 @@ void mtp_lock_storage_spi(bool lock) {}
       for(uint16_t rec_count=0; rec_count<entry_cnt; rec_count++) 
       {
         Record r;
+		r.store = record.store;
         r.parent = i;
         r.sibling = sibling;
         r.isdir = entries[rec_count].isDir;
@@ -505,7 +511,7 @@ void MTPStorage_SPI::printDirectory1(File dir, int numTabs) {
       //Serial.print("FILE\t");
       entries[entry_cnt].isDir = 0;
     }
-    //Serial.print(entry.name());
+    Serial.println(entry.name());
     
     if (entry.isDirectory()) {
       cx = snprintf ( buffer, 64, "%s", entry.name() );

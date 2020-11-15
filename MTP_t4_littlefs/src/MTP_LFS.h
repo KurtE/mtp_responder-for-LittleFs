@@ -51,19 +51,11 @@
 #define MTP_NAME  "Teensy"
 
 // MTP Responder.
-class MTPD1 {
+class MTPD_SPI {
 public:
-  explicit MTPD1(MTPStorageInterface1* storage1) : storage1_(storage1) {}
+  explicit MTPD_SPI(MTPStorageInterface1* storage1) : storage1_(storage1) {}
 private:
   MTPStorageInterface1* storage1_;
-  
-#ifdef USE_SPI
-	uint8_t storage_volume = 0;
-#elif defined(USE_QSPI)
-	uint8_t storage_volume = 1;
-#else
-	uint8_t storage_volume = 2;
-#endif
 
 
   struct MTPHeader {
@@ -118,11 +110,11 @@ private:
   void WriteDescriptor() ;
   void WriteStorageIDs() ;
 
-  void GetStorageInfo(uint32_t storage1) ;
+  void GetStorageInfo(uint32_t storage) ;
 
-  uint32_t GetNumObjects(uint32_t storage1, uint32_t parent) ;
+  uint32_t GetNumObjects(uint32_t storage, uint32_t parent) ;
 
-  void GetObjectHandles(uint32_t storage1, uint32_t parent) ;
+  void GetObjectHandles(uint32_t storage, uint32_t parent) ;
   
   void GetObjectInfo(uint32_t handle) ;
   void GetObject(uint32_t object_id) ;
@@ -138,7 +130,7 @@ private:
 
 //  void read_until_short_packet() ;
 
-  uint32_t SendObjectInfo(uint32_t storage1, uint32_t parent) ;
+  uint32_t SendObjectInfo(uint32_t storage, uint32_t parent) ;
   void SendObject() ;
 
   void GetDevicePropValue(uint32_t prop) ;
