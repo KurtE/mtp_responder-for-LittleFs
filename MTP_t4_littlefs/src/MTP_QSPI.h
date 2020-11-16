@@ -45,6 +45,7 @@
 class MTPD_QSPI {
 public:
   explicit MTPD_QSPI(MTPStorageInterface3* storage3) : storage3_(storage3) {}
+
 private:
   MTPStorageInterface3* storage3_;
 

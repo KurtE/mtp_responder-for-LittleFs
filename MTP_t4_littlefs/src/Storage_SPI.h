@@ -94,18 +94,6 @@ class MTPStorage_SPI : public MTPStorageInterface1
 
 const char * indexFile = "/mtpindex.dat";
 
-struct dirStruct {
-  int index;
-  uint8_t isDir;
-  char name[64];
-  int fnamelen;
-  uint32_t size;
-} entries[256];
-  char name1;
-  char buffer [64];
-  int cx;
-  int entry_cnt = 0;
-
 	
 public:
   void setStorageNumbers(const char **sd_str, int num) override;
@@ -153,7 +141,7 @@ private:
   uint32_t getNumStorage() override;
   const char * getStorageName(uint32_t storage) override;
   void StartGetObjectHandles(uint32_t storage, uint32_t parent) override ;
-  uint32_t GetNextObjectHandle(uint32_t  storage1) override ;
+  uint32_t GetNextObjectHandle(uint32_t  storage) override ;
   void GetObjectInfo(uint32_t handle, char* name, uint32_t* size, uint32_t* parent, uint16_t *store) override ;
   uint32_t GetSize(uint32_t handle) override;
   void read(uint32_t handle, uint32_t pos, char* out, uint32_t bytes) override ;
@@ -168,7 +156,6 @@ private:
   
   void ResetIndex() override ;
   
-void printDirectory1(File dir, int numTabs);
 void printRecord(int h, Record *p); 
 
 };

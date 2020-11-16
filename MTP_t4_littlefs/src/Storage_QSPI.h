@@ -94,18 +94,6 @@ class MTPStorage_QSPI : public MTPStorageInterface3
 
 const char * indexFile = "/mtpindex.dat";
 
-struct dirStruct {
-  int index;
-  uint8_t isDir;
-  char name[64];
-  int fnamelen;
-  uint32_t size;
-} entries[256];
-  char name1;
-  char buffer [64];
-  int cx;
-  int entry_cnt = 0;
-
 	
 public:
   void setStorageNumbers(const char **sd_str, int num) override;
@@ -168,7 +156,6 @@ private:
   
   void ResetIndex() override ;
   
-void printDirectory1(File dir, int numTabs);
 void printRecord(int h, Record *p); 
 
 };

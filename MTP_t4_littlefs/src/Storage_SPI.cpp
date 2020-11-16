@@ -179,49 +179,34 @@ void mtp_lock_storage_spi(bool lock) {}
 
   void MTPStorage_SPI::ScanDir(uint32_t storage, uint32_t i) 
   { Record record = ReadIndexRecord(i);
-//Serial.printf("ScanDir1 on entering\n\tIndex: %d\n", i);
-//Serial.printf("\tname: %s, parent: %d, child: %d, sibling: %d\n", record.name, record.parent, record.child, record.sibling);
-//Serial.printf("\tIsdir: %d, IsScanned: %d\n", record.isdir,record.scanned);
-  
     if (record.isdir && !record.scanned) {
-		//need to convert record name to string and add a "/" if not just a /
-	if(strcmp(record.name, "/") != 0) {
-		char str1[65] = "/";
-		strncat(str1, record.name,64);
-		printDirectory1(sdx[record.store].open(str1), 0);
-	} else {
-		printDirectory1(sdx[record.store].open(record.name), 0);
-	}
-
       OpenFileByIndex(i);
-	   mtp_lock_storage_spi(true);
-        mtp_lock_storage_spi(false);
-      if (!file_) return;
+      if (!sd_isOpen(file_)) return;
+    
       int sibling = 0;
-	  
-      for(uint16_t rec_count=0; rec_count<entry_cnt; rec_count++) 
-      {
+      while (true) 
+      { mtp_lock_storage_spi(true);
+        child_=file_.openNextFile();
+        mtp_lock_storage_spi(false);
+        if(!sd_isOpen(child_)) break;
+
         Record r;
-		r.store = record.store;
+        r.store = record.store;
         r.parent = i;
         r.sibling = sibling;
-        r.isdir = entries[rec_count].isDir;
-        r.child = r.isdir ? 0 : entries[rec_count].size;
+        r.isdir = child_.isDirectory();
+        r.child = r.isdir ? 0 : child_.size();
         r.scanned = false;
-		memset(r.name, 0, sizeof(r.name));
-		for(uint8_t j=0;j<entries[rec_count].fnamelen;j++)
-				r.name[j] = entries[rec_count].name[j];
+        sd_getName(child_,r.name,64);
         sibling = AppendIndexRecord(r);
-
-//Serial.printf("ScanDir1\n\tIndex: %d\n", i);
-//Serial.printf("\tname: %s, parent: %d, child: %d, sibling: %d\n", r.name, r.parent, r.child, r.sibling);
-//Serial.printf("\tIsdir: %d, IsScanned: %d\n", r.isdir, r.scanned);
+        child_.close();
       }
       record.scanned = true;
       record.child = sibling;
       WriteIndexRecord(i, record);
     }
   }
+
 
   void MTPStorage_SPI::ScanAll(uint32_t storage) 
   { if (all_scanned_) return;
@@ -498,55 +483,3 @@ void mtp_lock_storage_spi(bool lock) {}
 
     return sd_rename(store0,oldName,newName);
   }
-
-
-void MTPStorage_SPI::printDirectory1(File dir, int numTabs) {
-  //dir.whoami();
-  entry_cnt = 0;
-  while (true) {
-    entry_cnt = entry_cnt + 1;
-    File entry =  dir.openNextFile();
-    if (! entry) {
-      // no more files
-      //Serial.println("**nomorefiles**");
-      break;
-    }
-    //for (uint8_t i = 0; i < numTabs; i++) {
-    //  Serial.print('\t');
-    //}
-
-    if(entry.isDirectory()) {
-      //Serial.print("DIR\t");
-      entries[entry_cnt].isDir = 1;
-    } else {
-      //Serial.print("FILE\t");
-      entries[entry_cnt].isDir = 0;
-    }
-    Serial.println(entry.name());
-    
-    if (entry.isDirectory()) {
-      cx = snprintf ( buffer, 64, "%s", entry.name() );
-	  entries[entry_cnt].fnamelen = cx;
-	  //Serial.println(cx);
-      for(int j =0;j<cx;j++) entries[entry_cnt].name[j] = buffer[j];
-      //Serial.print(entries[entry_cnt].isDir);
-      //Serial.print("  ");Serial.println(entries[entry_cnt].name);
-	  entries[entry_cnt].size = 0;
-      //printDirectory1(entry, numTabs + 1);
-    } else {
-      // files have sizes, directories do not
-      //Serial.print("\t\t");
-      //Serial.println(entry.size(), DEC);
-      cx = snprintf ( buffer, 64, "%s", entry.name() );
-		entries[entry_cnt].fnamelen = cx;
-		//Serial.print("NAME LEN: ");Serial.println(entries[entry_cnt].fnamelen);
-      for(int j =0;j<cx;j++) entries[entry_cnt].name[j] = buffer[j];
-      //Serial.print(entries[entry_cnt].isDir);
-      //Serial.print(" ");Serial.print(entries[entry_cnt].name);
-      entries[entry_cnt].size = entry.size();
-      //Serial.print(" "); Serial.println( entries[entry_cnt].size);
-    }
-    entry.close();
-  }
-  //Serial.println(entry_cnt);
-}
