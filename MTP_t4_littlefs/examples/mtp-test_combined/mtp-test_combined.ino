@@ -1,4 +1,5 @@
 #include "Arduino.h"
+
 //#define USE_SPI
 //#define USE_RAM
 #define USE_QSPI
@@ -8,7 +9,7 @@
 #elif defined(USE_RAM)
   #include "MTP_RAM.h"
   char mybuffer0[40000];
-  char mybuffer1[40000];
+  EXTMEM char mybuffer1[40000];
 #elif defined(USE_QSPI)
   #include "MTP_QSPI.h"
 #endif
