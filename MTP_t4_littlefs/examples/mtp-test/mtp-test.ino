@@ -22,10 +22,9 @@
   #define SPI_SPEED SD_SCK_MHZ(16)  // adjust to sd card 
 
 #if DO_LITTLEFS==1
-  const char *sd_str[]={"sdio","RAM0","RAM1","Propshield", "Winbond0"};     // edit to reflect your configuration
-	//0 = SD Card, 1 = RAM, 2 = SPIFlash  
-  const int typeStore[]={0,1,1,2,2};
-  const int cs[] = {BUILTIN_SDCARD, 256, 256, 6, 10};  // edit to reflect your configuration
+  const char *sd_str[]={"sdio","RAM0","RAM1","Propshield", "Winbond0", "QSPI0"};     // edit to reflect your configuration
+  const int typeStore[]={0,1,1,2,2,3};
+  const int cs[] = {BUILTIN_SDCARD, 256, 256, 6, 10,257};  // edit to reflect your configuration
 #else
   const int typeStore[]={0,0};
   const char *sd_str[]={"sdio","sd6"}; // edit to reflect your configuration
@@ -38,6 +37,7 @@ SDClass sdx[nsd];
 #if HAVE_LITTLEFS==1
   LittleFS_RAM ramfs[nsd]; // needs to be declared if LittleFS is used in storage.h
   LittleFS_SPIFlash spiFlash[nsd];
+  LittleFS_QSPIFlash qspiFlash;
 #endif
 
 void storage_configure(MTPStorage_SD *storage, const char **sd_str, const int *cs, const int *stype, SDClass *sdx, int num)
@@ -69,6 +69,14 @@ void storage_configure(MTPStorage_SD *storage, const char **sd_str, const int *c
         else if(stype[ii] == 2) {
           if(!spiFlash[ii].begin(cs[ii], SPI)) { Serial.println("No storage"); while(1);}
         }
+       else if(stype[ii] == 3) {
+          if(!qspiFlash.begin()) { Serial.println("No storage"); while(1);}
+        }
+       else {
+        Serial.println("Storage Type Not supported");
+        while(1) {};
+       }
+      
       #endif
       if(cs[ii]<256)
       {
@@ -89,6 +97,13 @@ void storage_configure(MTPStorage_SD *storage, const char **sd_str, const int *c
         {
           uint32_t volCount = spiFlash[ii].totalSize();
           uint32_t volFree  = volCount - spiFlash[ii].usedSize();
+          uint32_t volClust = 1;
+          Serial.printf("Storage %d %d %s %d %d %d\n",ii,cs[ii],sd_str[ii],volCount,volFree,volClust);
+        }
+        else if(stype[ii] == 3) // LittleFS_RAM
+        {
+          uint32_t volCount = qspiFlash.totalSize();
+          uint32_t volFree  = volCount - qspiFlash.usedSize();
           uint32_t volClust = 1;
           Serial.printf("Storage %d %d %s %d %d %d\n",ii,cs[ii],sd_str[ii],volCount,volFree,volClust);
         }

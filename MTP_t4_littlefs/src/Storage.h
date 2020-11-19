@@ -44,7 +44,7 @@ extern SDClass sdx[];
 #include "LittleFS.h"
 extern LittleFS_RAM ramfs[];
 extern LittleFS_SPIFlash spiFlash[];
-
+extern LittleFS_QSPIFlash qspiFlash;
 #endif
 
 class mSD_Base
@@ -55,6 +55,7 @@ class mSD_Base
     #if HAVE_LITTLEFS==1
     else if(cs[store]==256) return ramfs[store].open(filename,mode);
 	else if(typeStore[store] ==2) return spiFlash[store].open(filename,mode);
+	else if(typeStore[store] ==3) return qspiFlash.open(filename,mode);
     #endif
     else return 0;
   }
@@ -63,6 +64,7 @@ class mSD_Base
     #if HAVE_LITTLEFS==1
     else if(cs[store]==256)  return ramfs[store].mkdir(filename);
 	else if(typeStore[store] ==2) return spiFlash[store].mkdir(filename);
+	else if(typeStore[store] ==3) return qspiFlash.mkdir(filename);
     #endif
     else return false;
   }
@@ -72,6 +74,7 @@ class mSD_Base
     #if HAVE_LITTLEFS==1
     else if(cs[store]==256)  return ramfs[store].rename(oldfilename,newfilename);
 	else if(typeStore[store] ==2) return spiFlash[store].rename(oldfilename,newfilename);
+	else if(typeStore[store] ==3) return qspiFlash.rename(oldfilename,newfilename);
     #endif
     else return false;
   }
@@ -81,6 +84,7 @@ class mSD_Base
     #if HAVE_LITTLEFS==1
     else if(cs[store]==256)  return ramfs[store].remove(filename);
 	else if(typeStore[store] ==2) return spiFlash[store].remove(filename);
+	else if(typeStore[store] ==3) return qspiFlash.remove(filename);
     #endif
     else return false;
   }
@@ -89,6 +93,7 @@ class mSD_Base
     #if HAVE_LITTLEFS==1
     else if(cs[store]==256)  return ramfs[store].rmdir(filename);
 	else if(typeStore[store] ==2) return spiFlash[store].rmdir(filename);
+	else if(typeStore[store] ==3) return qspiFlash.rmdir(filename);
     #endif
     else return false;
   }
@@ -98,6 +103,7 @@ class mSD_Base
     #if HAVE_LITTLEFS==1
     else if(cs[store]==256)  return ramfs[store].totalSize()/512; 
 	else if(typeStore[store] ==2) return spiFlash[store].totalSize()/512; 
+	else if(typeStore[store] ==3) return qspiFlash.totalSize()/512; 
     #endif
     else return 0;
  }
@@ -106,6 +112,7 @@ class mSD_Base
     #if HAVE_LITTLEFS==1
     else if(cs[store]==256)  return (ramfs[store].totalSize()-ramfs[store].usedSize())/512; 
 	else if(typeStore[store] ==2) return (spiFlash[store].totalSize()-spiFlash[store].usedSize())/512;
+	else if(typeStore[store] ==3) return (qspiFlash.totalSize()-qspiFlash.usedSize())/512;
     #endif
     else return 0;
   }
@@ -113,7 +120,7 @@ class mSD_Base
   { if(!cs || (cs[store]<256)) return sdx[store].sdfs.sectorsPerCluster();
     #if HAVE_LITTLEFS==1
     else if(cs[store]==256)  return 1;
-	else if(typeStore[store] ==2) return 1;
+	else if(typeStore[store] > 0) return 1;
     #endif
     else return 0;
   }
