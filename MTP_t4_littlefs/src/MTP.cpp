@@ -25,15 +25,19 @@
 
 #if defined(USB_MTPDISK) || defined(USB_MTPDISK_SERIAL)
 
-#include "MTP_LFS.h"
-
+#include "MTP.h"
 
 #undef USB_DESC_LIST_DEFINE
 #include "usb_desc.h"
 
 #include "usb1_mtp.h"
 
-#define printf(...) Serial.printf(__VA_ARGS__)
+#define DEBUG 0
+#if DEBUG==1
+  #define printf(...) Serial.printf(__VA_ARGS__)
+#else
+  #define printf(...) 
+#endif
 
 /***************************************************************************************************/
   // Container Types
@@ -152,8 +156,8 @@
     MTP_PROPERTY_PROTECTION_STATUS                      ,//0xDC03
     MTP_PROPERTY_OBJECT_SIZE                            ,//0xDC04
     MTP_PROPERTY_OBJECT_FILE_NAME                       ,//0xDC07
-    MTP_PROPERTY_DATE_CREATED                           ,//0xDC08
-    MTP_PROPERTY_DATE_MODIFIED                          ,//0xDC09
+//    MTP_PROPERTY_DATE_CREATED                           ,//0xDC08
+//    MTP_PROPERTY_DATE_MODIFIED                          ,//0xDC09
     MTP_PROPERTY_PARENT_OBJECT                          ,//0xDC0B
     MTP_PROPERTY_PERSISTENT_UID                         ,//0xDC41
     MTP_PROPERTY_NAME                                    //0xDC44
@@ -179,12 +183,12 @@
   };
 */
 
-  void MTPD1::write8 (uint8_t  x) { write((char*)&x, sizeof(x)); }
-  void MTPD1::write16(uint16_t x) { write((char*)&x, sizeof(x)); }
-  void MTPD1::write32(uint32_t x) { write((char*)&x, sizeof(x)); }
-  void MTPD1::write64(uint64_t x) { write((char*)&x, sizeof(x)); }
+  void MTPD::write8 (uint8_t  x) { write((char*)&x, sizeof(x)); }
+  void MTPD::write16(uint16_t x) { write((char*)&x, sizeof(x)); }
+  void MTPD::write32(uint32_t x) { write((char*)&x, sizeof(x)); }
+  void MTPD::write64(uint64_t x) { write((char*)&x, sizeof(x)); }
 
-  void MTPD1::writestring(const char* str) {
+  void MTPD::writestring(const char* str) {
     if (*str) 
     { write8(strlen(str) + 1);
       while (*str) {  write16(*str);  ++str;  } write16(0);
@@ -193,7 +197,7 @@
     }
   }
 
-  void MTPD1::WriteDescriptor() {
+  void MTPD::WriteDescriptor() {
     write16(100);  // MTP version
     write32(6);    // MTP extension
 //    write32(0xFFFFFFFFUL);    // MTP extension
@@ -216,68 +220,66 @@
     write16(0x3000);  // Undefined format
     write16(0x3001);  // Folders (associations)
 
-    writestring("PJRC");     // Manufacturer
-    writestring("Teensy");   // Model
-    writestring("1.1");      // version
-    writestring("???");      // serial
+    writestring(MTP_MANUF);     // Manufacturer
+    writestring(MTP_MODEL);     // Model
+    writestring(MTP_VERS);      // version
+    writestring(MTP_SERNR);     // serial
   }
 
-  void MTPD1::WriteStorageIDs() {
-    write32(1); // 1 entry
-    write32(1); // 1 storage1
+  void MTPD::WriteStorageIDs() {
+    uint32_t num=storage_->getNumStorage();
+    write32(num); // 1 entry
+    for(uint32_t ii=1;ii<=num;ii++)  write32(ii); // storage id
   }
 
-  void MTPD1::GetStorageInfo(uint32_t storage1) {
-    write16(storage1_->readonly() ? 0x0001 : 0x0004);   // storage1 type (removable RAM)
-    write16(storage1_->has_directories() ? 0x0002: 0x0001);   // filesystem type (generic hierarchical)
+  void MTPD::GetStorageInfo(uint32_t storage) {
+    write16(storage_->readonly( storage) ? 0x0001 : 0x0004);   // storage type (removable RAM)
+    write16(storage_->has_directories( storage) ? 0x0002: 0x0001);   // filesystem type (generic hierarchical)
     write16(0x0000);   // access capability (read-write)
     
-    write64(storage1_->clusterCount());  // max capacity
-    write64(storage1_->freeClusters());  // free space (100M)
-    //
+    uint32_t nclust = storage_->clusterCount(storage) ; 
+    uint32_t nsect = storage_->clusterSize(storage) ; 
+    uint32_t nfree = storage_->freeClusters(storage) ; 
+    write64((uint64_t)nclust*nsect*512L);  // max capacity
+    write64((uint64_t)nfree*nsect*512L);  // free space (100M)
     //
     write32(0xFFFFFFFFUL);  // free space (objects)
-	if(storage_volume == 0) {
-		writestring("SPI FLASH");  // storage1 descriptor
-	} else if(storage_volume == 1) {
-		writestring("QSPI FLASH");  // storage1 descriptor
-	} else {
-		writestring("RAM DRIVE");  // storage1 descriptor
-	}
-
+    const char *name = storage_->getStorageName(storage);
+    writestring(name);  // storage descriptor
     writestring("");  // volume identifier
   }
 
-  uint32_t MTPD1::GetNumObjects(uint32_t storage1, uint32_t parent) 
+  uint32_t MTPD::GetNumObjects(uint32_t storage, uint32_t parent) 
   {
-    storage1_->StartGetObjectHandles(parent);
+    storage_->StartGetObjectHandles(storage, parent);
     int num = 0;
-    while (storage1_->GetNextObjectHandle()) num++;
+    while (storage_->GetNextObjectHandle(storage)) num++;
     return num;
   }
 
-  void MTPD1::GetObjectHandles(uint32_t storage1, uint32_t parent) 
+  void MTPD::GetObjectHandles(uint32_t storage, uint32_t parent) 
   {
     if (write_get_length_) {
-      write_length_ = GetNumObjects(storage1, parent);
+      write_length_ = GetNumObjects(storage, parent);
       write_length_++;
       write_length_ *= 4;
     }
     else{
-      write32(GetNumObjects(storage1, parent));
+      write32(GetNumObjects(storage, parent));
       int handle;
-      storage1_->StartGetObjectHandles(parent);
-      while ((handle = storage1_->GetNextObjectHandle())) write32(handle);
+      storage_->StartGetObjectHandles(storage, parent);
+      while ((handle = storage_->GetNextObjectHandle(storage))) write32(handle);
     }
   }
   
-  void MTPD1::GetObjectInfo(uint32_t handle) 
+  void MTPD::GetObjectInfo(uint32_t handle) 
   {
     char filename[256];
     uint32_t size, parent;
-    storage1_->GetObjectInfo(handle, filename, &size, &parent);
+    uint16_t store;
+    storage_->GetObjectInfo(handle, filename, &size, &parent, &store);
 
-    write32(1); // storage1
+    write32(store); // storage
     write16(size == 0xFFFFFFFFUL ? 0x3001 : 0x0000); // format
     write16(0);  // protection
     write32(size); // size
@@ -298,8 +300,7 @@
     writestring("");  // keywords
   }
 
-
-  uint32_t MTPD1::ReadMTPHeader() 
+  uint32_t MTPD::ReadMTPHeader() 
   {
     MTPHeader header;
     read((char *)&header, sizeof(MTPHeader));
@@ -310,22 +311,23 @@
       return 0;
   }
 
-  uint8_t MTPD1::read8() { uint8_t ret; read((char*)&ret, sizeof(ret));  return ret;  }
-  uint16_t MTPD1::read16() { uint16_t ret; read((char*)&ret, sizeof(ret)); return ret; }
-  uint32_t MTPD1::read32() { uint32_t ret; read((char*)&ret, sizeof(ret)); return ret; }
+  uint8_t MTPD::read8() { uint8_t ret; read((char*)&ret, sizeof(ret));  return ret;  }
+  uint16_t MTPD::read16() { uint16_t ret; read((char*)&ret, sizeof(ret)); return ret; }
+  uint32_t MTPD::read32() { uint32_t ret; read((char*)&ret, sizeof(ret)); return ret; }
 
-  void MTPD1::readstring(char* buffer) {
+  void MTPD::readstring(char* buffer) {
     int len = read8();
     if (!buffer) {
       read(NULL, len * 2);
     } else {
       for (int i = 0; i < len; i++) {
-        *(buffer++) = read16();
+        int16_t c2;
+        *(buffer++) = c2 = read16();
       }
     }
   }
 /*
-  void MTPD1::read_until_short_packet() {
+  void MTPD::read_until_short_packet() {
     bool done = false;
     while (!done) {
       receive_buffer();
@@ -335,17 +337,17 @@
     }
   }
 */
-  void MTPD1::GetDevicePropValue(uint32_t prop) {
+  void MTPD::GetDevicePropValue(uint32_t prop) {
     switch (prop) {
       case 0xd402: // friendly name
         // This is the name we'll actually see in the windows explorer.
         // Should probably be configurable.
-        writestring("Teensy");
+        writestring(MTP_NAME);
         break;
     }
   }
 
-  void MTPD1::GetDevicePropDesc(uint32_t prop) {
+  void MTPD::GetDevicePropDesc(uint32_t prop) {
     switch (prop) {
       case 0xd402: // friendly name
         write16(prop);
@@ -357,13 +359,13 @@
     }
   }
 
-    void MTPD1::getObjectPropsSupported(uint32_t p1)
+    void MTPD::getObjectPropsSupported(uint32_t p1)
     {
       write32(propertyListNum);
       for(uint32_t ii=0; ii<propertyListNum;ii++) write16(propertyList[ii]);
     }
 
-    void MTPD1::getObjectPropDesc(uint32_t p1, uint32_t p2)
+    void MTPD::getObjectPropDesc(uint32_t p1, uint32_t p2)
     {
       switch(p1)
       {
@@ -453,17 +455,18 @@
       }
     }
 
-    void MTPD1::getObjectPropValue(uint32_t p1, uint32_t p2)
+    void MTPD::getObjectPropValue(uint32_t p1, uint32_t p2)
     { char name[128];
       uint32_t dir;
       uint32_t size;
       uint32_t parent;
-      storage1_->GetObjectInfo(p1,name,&size,&parent);
+      uint16_t store;
+      storage_->GetObjectInfo(p1,name,&size,&parent, &store);
       dir = size == 0xFFFFFFFFUL;
       switch(p2)
       {
         case MTP_PROPERTY_STORAGE_ID:         //0xDC01:
-          write32(p1);
+          write32(store);
           break;
         case MTP_PROPERTY_OBJECT_FORMAT:      //0xDC02:
           write16(dir?0x3001:0x3000);
@@ -490,7 +493,7 @@
         case MTP_PROPERTY_PERSISTENT_UID:     //0xDC41:
           write32(p1);
           write32(parent);
-          write32(1);
+          write32(store);
           write32(0);
           break;
         case MTP_PROPERTY_NAME:               //0xDC44:
@@ -501,45 +504,45 @@
       }
     }
     
-    uint32_t MTPD1::deleteObject(uint32_t p1)
+    uint32_t MTPD::deleteObject(uint32_t p1)
     {
-        if (!storage1_->DeleteObject(p1))
+        if (!storage_->DeleteObject(p1))
         {
           return 0x2012; // partial deletion
         }
         return 0x2001;
     }
 
-    uint32_t MTPD1::moveObject(uint32_t p1, uint32_t p3)
+    uint32_t MTPD::moveObject(uint32_t p1, uint32_t p2, uint32_t p3)
     { // p1 object
+      // p2 new storage
       // p3 new directory
-      storage1_->move(p1,p3);
-      return 0x2001;
+      if(storage_->move(p1,p2,p3)) return 0x2001; else return  0x2005;
     }
     
-    void MTPD1::openSession(void)
+    void MTPD::openSession(void)
     {
-      storage1_->ResetIndex();
+      storage_->ResetIndex();
     }
 
 #if defined(__MK20DX128__) || defined(__MK20DX256__) || defined(__MK64FX512__) || defined(__MK66FX1M0__)
 
 //  usb_packet_t *data_buffer_ = NULL;
-  void MTPD1::get_buffer() {
+  void MTPD::get_buffer() {
     while (!data_buffer_) {
       data_buffer_ = usb_malloc();
       if (!data_buffer_) mtp_yield();
     }
   }
 
-  void MTPD1::receive_buffer() {
+  void MTPD::receive_buffer() {
     while (!data_buffer_) {
       data_buffer_ = usb_rx(MTP_RX_ENDPOINT);
       if (!data_buffer_) mtp_yield();
     }
   }
 
-  void MTPD1::write(const char *data, int len) {
+  void MTPD::write(const char *data, int len) {
     if (write_get_length_) {
       write_length_ += len;
     } else {
@@ -560,9 +563,9 @@
       }
     }
   }
-  void MTPD1::GetObject(uint32_t object_id) 
+  void MTPD::GetObject(uint32_t object_id) 
   {
-    uint32_t size = storage1_->GetSize(object_id);
+    uint32_t size = storage_->GetSize(object_id);
     if (write_get_length_) {
       write_length_ += size;
     } else {
@@ -571,8 +574,8 @@
         get_buffer();
         uint32_t avail = sizeof(data_buffer_->buf) - data_buffer_->len;
         uint32_t to_copy = min(size - pos, avail);
-        // Read directly from storage1 into usb buffer.
-        storage1_->read(object_id, pos,
+        // Read directly from storage into usb buffer.
+        storage_->read(object_id, pos,
                     (char*)(data_buffer_->buf + data_buffer_->len), to_copy);
         pos += to_copy;
         data_buffer_->len += to_copy;
@@ -610,7 +613,7 @@
                 CONTAINER->params[0], CONTAINER->params[1], CONTAINER->params[2]);  }
 
 
-  void MTPD1::read(char* data, uint32_t size) 
+  void MTPD::read(char* data, uint32_t size) 
   {
     while (size) {
       receive_buffer();
@@ -629,11 +632,11 @@
     }
   }
 
-  uint32_t MTPD1::SendObjectInfo(uint32_t storage1, uint32_t parent) {
+  uint32_t MTPD::SendObjectInfo(uint32_t storage, uint32_t parent) {
     uint32_t len = ReadMTPHeader();
     char filename[256];
 
-    read32(); len-=4; // storage1
+    uint32_t store = read32(); len-=4; // storage
     bool dir = read16() == 0x3001; len-=2; // format
     read16();  len-=2; // protection
     read32(); len-=4; // size
@@ -654,17 +657,17 @@
     while(len>=4) { read32(); len-=4;}
     while(len) {read8(); len--;}
     
-    return storage1_->Create(parent, dir, filename);
+    return storage_->Create(store, parent, dir, filename);
   }
 
-  void MTPD1::SendObject() {
+  void MTPD::SendObject() {
     uint32_t len = ReadMTPHeader();
     while (len) 
     { 
       receive_buffer();
       uint32_t to_copy = data_buffer_->len - data_buffer_->index;
       to_copy = min(to_copy, len);
-      storage1_->write((char*)(data_buffer_->buf + data_buffer_->index), to_copy);
+      storage_->write((char*)(data_buffer_->buf + data_buffer_->index), to_copy);
       data_buffer_->index += to_copy;
       len -= to_copy;
       if (data_buffer_->index == data_buffer_->len) 
@@ -673,10 +676,10 @@
         data_buffer_ = NULL;
       }
     }
-    storage1_->close();
+    storage_->close();
   }
   
-    uint32_t MTPD1::setObjectPropValue(uint32_t p1, uint32_t p2)
+    uint32_t MTPD::setObjectPropValue(uint32_t p1, uint32_t p2)
     {
       receive_buffer();
       if(p2==0xDC07)
@@ -684,8 +687,8 @@
         char filename[128];
         ReadMTPHeader();
         readstring(filename);
-//printf("MTPD1::setObjectPropValue (p1, filename): %d, %s\n", p1, filename);
-        storage1_->rename(p1,filename);
+
+        storage_->rename(p1,filename);
 
         return 0x2001;
       }
@@ -693,7 +696,7 @@
         return 0x2005;
     }
 
-  void MTPD1::loop(void) 
+  void MTPD::loop(void) 
   {
     usb_packet_t *receive_buffer;
     if ((receive_buffer = usb_rx(MTP_RX_ENDPOINT))) {
@@ -745,14 +748,14 @@
               if (CONTAINER->params[1]) {
                 return_code = 0x2014; // spec by format unsupported
               } else {
-                if (!storage1_->DeleteObject(CONTAINER->params[0])) {
+                if (!storage_->DeleteObject(CONTAINER->params[0])) {
                   return_code = 0x2012; // partial deletion
                 }
               }
               break;
             case 0x100C:  // SendObjectInfo
               CONTAINER->params[2] =
-                  SendObjectInfo(CONTAINER->params[0], // storage1
+                  SendObjectInfo(CONTAINER->params[0], // storage
                                  CONTAINER->params[1]); // parent
                   p1 = CONTAINER->params[0];
               if (!p1) p1 = 1;
@@ -773,7 +776,7 @@
               break;
 
           case 0x1019:  // MoveObject
-              return_code = moveObject(CONTAINER->params[0],CONTAINER->params[2]);
+              return_code = moveObject(CONTAINER->params[0],CONTAINER->params[1],CONTAINER->params[2]);
               CONTAINER->len  = receive_buffer->len = 12;
               break;
 
@@ -842,24 +845,24 @@
 //  extern "C"  uint32_t mtp_tx_event_counter;
 
 
-    int MTPD1::push_packet(uint8_t *data_buffer,uint32_t len)
+    int MTPD::push_packet(uint8_t *data_buffer,uint32_t len)
     {
       while(usb_mtp_send(data_buffer,len,60)<=0) ;
       return 1;
     }
 
-    int MTPD1::pull_packet(uint8_t *data_buffer)
+    int MTPD::pull_packet(uint8_t *data_buffer)
     {
       while(!usb_mtp_available());
       return usb_mtp_recv(data_buffer,60);
     }
 
-    int MTPD1::fetch_packet(uint8_t *data_buffer)
+    int MTPD::fetch_packet(uint8_t *data_buffer)
     {
       return usb_mtp_recv(data_buffer,60);
     }
 
-    void MTPD1::write(const char *data, int len) 
+    void MTPD::write(const char *data, int len) 
     { if (write_get_length_) 
       {
         write_length_ += len;
@@ -887,9 +890,9 @@
       }
     }
 
-    void MTPD1::GetObject(uint32_t object_id) 
+    void MTPD::GetObject(uint32_t object_id) 
     {
-      uint32_t size = storage1_->GetSize(object_id);
+      uint32_t size = storage_->GetSize(object_id);
 
       if (write_get_length_) {
         write_length_ += size;
@@ -904,7 +907,7 @@
           if(disk_pos==DISK_BUFFER_SIZE)
           {
             uint32_t nread=min(size-pos,(uint32_t)DISK_BUFFER_SIZE);
-            storage1_->read(object_id,pos,(char *)disk_buffer,nread);
+            storage_->read(object_id,pos,(char *)disk_buffer,nread);
             disk_pos=0;
           }
 
@@ -954,12 +957,12 @@
     } while(0)
 
 
-    #define printContainer() {   printf("%x %d %d %d: %x %x %x\n", \
+    #define printContainer() { printf("%x %d %d %d: %x %x %x\n", \
                 CONTAINER->op, CONTAINER->len, CONTAINER->type, CONTAINER->transaction_id, \
                 CONTAINER->params[0], CONTAINER->params[1], CONTAINER->params[2]);  }
 
 
-    void MTPD1::read(char* data, uint32_t size) 
+    void MTPD::read(char* data, uint32_t size) 
     {
       static int index=0;
       if(!size) 
@@ -984,15 +987,14 @@
       }
     }
 
-    uint32_t MTPD1::SendObjectInfo(uint32_t storage1, uint32_t parent) {
+    uint32_t MTPD::SendObjectInfo(uint32_t storage, uint32_t parent) {
       pull_packet(rx_data_buffer);
 //      printContainer(); 
-      
       read(0,0); // resync read
       int len=ReadMTPHeader();
       char filename[256];
 
-      read32(); len -=4; // storage1
+      read32(); len -=4; // storage
       bool dir = (read16() == 0x3001); len -=2; // format
       read16(); len -=2; // protection
       read32(); len -=4; // size
@@ -1007,16 +1009,15 @@
       read16(); len -=2; // association type
       read32(); len -=4; // association description
       read32(); len -=4; // sequence number
-
       readstring(filename); len -= (2*(strlen(filename)+1)+1); 
       // ignore rest of ObjectInfo
       while(len>=4) { read32(); len-=4;}
       while(len) {read8(); len--;}
 
-      return storage1_->Create(parent, dir, filename);
+      return storage_->Create(storage, parent, dir, filename);
     }
 
-    void MTPD1::SendObject() 
+    void MTPD::SendObject() 
     { 
       pull_packet(rx_data_buffer);
 //      printContainer(); 
@@ -1038,7 +1039,7 @@
         //
         if(disk_pos==DISK_BUFFER_SIZE)
         {
-          storage1_->write((const char *)disk_buffer, DISK_BUFFER_SIZE);
+          storage_->write((const char *)disk_buffer, DISK_BUFFER_SIZE);
           disk_pos =0;
 
           if(bytes) // we have still data in transfer buffer, copy to initial disk_buffer
@@ -1057,34 +1058,31 @@
       //printf("len %d\n",disk_pos);
       if(disk_pos)
       {
-        storage1_->write((const char *)disk_buffer, disk_pos);
+        storage_->write((const char *)disk_buffer, disk_pos);
       }
-      storage1_->close();
+      storage_->close();
     }
 
-    uint32_t MTPD1::setObjectPropValue(uint32_t p1, uint32_t p2)
+    uint32_t MTPD::setObjectPropValue(uint32_t p1, uint32_t p2)
     { pull_packet(rx_data_buffer);
-//      printContainer(); 
-      
+      //printContainer(); 
+      read(0,0);
+         
       if(p2==0xDC07)
-      {
-        char filename[128];
+      { 
+        char filename[128]; 
         ReadMTPHeader();
         readstring(filename);
-//printf("MTPD1::setObjectPropValue1 (p1, filename): %d, %s\n", p1, filename);
-
-        storage1_->rename(p1,filename);
-
-        return 0x2001;
+        if(storage_->rename(p1,filename)) return 0x2001; else return 0x2005;
       }
       else
         return 0x2005;
     }
 
-    void MTPD1::loop(void)
+    void MTPD::loop(void)
     { if(!usb_mtp_available()) return;
       if(fetch_packet(rx_data_buffer))
-      { printContainer();
+      { printContainer(); // to switch on set debug to 1 at beginning of file
 
         int op = CONTAINER->op;
         int p1 = CONTAINER->params[0];
@@ -1152,16 +1150,15 @@
               if (CONTAINER->params[1]) {
                 return_code = 0x2014; // spec by format unsupported
               } else {
-                if (!storage1_->DeleteObject(CONTAINER->params[0])) {
+                if (!storage_->DeleteObject(CONTAINER->params[0])) {
                   return_code = 0x2012; // partial deletion
                 }
               }
               break;
 
-
           case 0x100C:  // SendObjectInfo
               if (!p1) p1 = 1;
-              CONTAINER->params[2] = SendObjectInfo(p1, // storage1
+              CONTAINER->params[2] = SendObjectInfo(p1, // storage
                                                     p2); // parent
 
               CONTAINER->params[1]=p2;
@@ -1186,7 +1183,7 @@
               break;
 
           case 0x1019:  // MoveObject
-              return_code = moveObject(p1,p3);
+              return_code = moveObject(p1,p2,p3);
               CONTAINER->len  = len = 12;
               break;
 
@@ -1221,9 +1218,10 @@
             CONTAINER->op=return_code;
             CONTAINER->transaction_id=id;
             CONTAINER->params[0]=p1;
-            //printContainer();
+            printContainer(); // to switch on set debug to 1 at beginning of file
+
             memcpy(tx_data_buffer,rx_data_buffer,len);
-            push_packet(tx_data_buffer,len); // for acknowledge use rx_daza_buffer
+            push_packet(tx_data_buffer,len); // for acknowledge use rx_data_buffer
         }
       }
     }

@@ -33,38 +33,21 @@
 #include "core_pins.h"
 #include "usb_dev.h"
 
-#ifdef use_spi_disk
-	#define USE_SPI
-#elif defined(use_qspi_disk)
-	#define USE_QSPI
-#else
-	#define USE_RAM
-#endif
-
-
-#ifdef USE_SPI
-	#include "Storage_SPI.h"
-#elif defined(USE_QSPI)
-	#include "Storage_QSPI.h"
-#else
-	#include "Storage_RAM.h"
-#endif
+#include "Storage.h"
+// modify strings if needed (see MTP.cpp how they are used)
+#define MTP_MANUF "PJRC"
+#define MTP_MODEL "Teensy"
+#define MTP_VERS  "1.0"
+#define MTP_SERNR "1234"
+#define MTP_NAME  "Teensy"
 
 // MTP Responder.
-class MTPD1 {
+class MTPD {
 public:
-  explicit MTPD1(MTPStorageInterface1* storage1) : storage1_(storage1) {}
-private:
-  MTPStorageInterface1* storage1_;
-  
-#ifdef USE_SPI
-	uint8_t storage_volume = 0;
-#elif defined(USE_QSPI)
-	uint8_t storage_volume = 1;
-#else
-	uint8_t storage_volume = 2;
-#endif
+  explicit MTPD(MTPStorageInterface* storage) : storage_(storage) {}
 
+private:
+  MTPStorageInterface* storage_;
 
   struct MTPHeader {
     uint32_t len;  // 0
@@ -118,11 +101,11 @@ private:
   void WriteDescriptor() ;
   void WriteStorageIDs() ;
 
-  void GetStorageInfo(uint32_t storage1) ;
+  void GetStorageInfo(uint32_t storage) ;
 
-  uint32_t GetNumObjects(uint32_t storage1, uint32_t parent) ;
+  uint32_t GetNumObjects(uint32_t storage, uint32_t parent) ;
 
-  void GetObjectHandles(uint32_t storage1, uint32_t parent) ;
+  void GetObjectHandles(uint32_t storage, uint32_t parent) ;
   
   void GetObjectInfo(uint32_t handle) ;
   void GetObject(uint32_t object_id) ;
@@ -138,7 +121,7 @@ private:
 
 //  void read_until_short_packet() ;
 
-  uint32_t SendObjectInfo(uint32_t storage1, uint32_t parent) ;
+  uint32_t SendObjectInfo(uint32_t storage, uint32_t parent) ;
   void SendObject() ;
 
   void GetDevicePropValue(uint32_t prop) ;
@@ -151,11 +134,12 @@ private:
   uint32_t setObjectPropValue(uint32_t p1, uint32_t p2) ;
 
   uint32_t deleteObject(uint32_t p1) ;
-  uint32_t moveObject(uint32_t p1, uint32_t p3) ;
+  uint32_t moveObject(uint32_t p1,uint32_t p2, uint32_t p3) ;
   void openSession(void) ;
   
 public:
   void loop(void) ;
+  void test(void) ;
 };
 
 #endif
